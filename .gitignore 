@@ -2,3 +2,4 @@
 .env.example
 .env.example.local
 .env.example.local
+*.env
