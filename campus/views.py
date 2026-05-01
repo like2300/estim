@@ -167,9 +167,20 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
         if not matricule or not session_id:
             return Response({"error": "Matricule et session sont requis"}, status=400)
 
-        # Vérification si c'est son propre résultat ou si payé
+        # 1. Vérifier si la session existe
+        try:
+            session = SessionExamen.objects.get(id=session_id)
+        except SessionExamen.DoesNotExist:
+            return Response({"error": "Session non trouvée"}, status=404)
+
+        # 2. Vérifier si les résultats existent pour ce matricule dans cette session
+        # AVANT de demander un paiement
+        if not Resultat.objects.filter(matricule=matricule, session=session).exists():
+            return Response({"error": "Aucun résultat trouvé pour ce matricule dans cette session"}, status=404)
+
+        # 3. Vérification si c'est son propre résultat ou si payé
         if matricule != payer_matricule:
-            # Vérifier si une transaction SUCCESS existe pour ce payeur, cette cible et cette session
+            # Vérifier si une transaction SUCCESS existe
             paid = Transaction.objects.filter(
                 payer_matricule=payer_matricule, 
                 target_matricule=matricule, 
@@ -184,17 +195,14 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
                     "message": "La consultation du résultat d'un autre étudiant nécessite un paiement de 100 XAF."
                 }, status=200)
 
-        try:
-            session = SessionExamen.objects.get(id=session_id)
-        except SessionExamen.DoesNotExist:
-            return Response({"error": "Session non trouvée"}, status=404)
-
+        # 4. Vérifier si les résultats sont disponibles (ouverts par l'admin)
         if not session.results_available:
             return Response({
                 "available": False,
                 "message": "Les résultats ne sont pas encore disponibles. Veuillez contacter le service client ou votre établissement."
             }, status=200)
 
+        # 5. Renvoyer le résultat
         try:
             resultat = Resultat.objects.get(matricule=matricule, session=session)
             serializer = self.get_serializer(resultat)
