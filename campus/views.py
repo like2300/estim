@@ -24,6 +24,10 @@ class TransactionViewSet(viewsets.ModelViewSet):
         if not all([payer_matricule, target_matricule, session_id]):
             return Response({"error": "Données manquantes"}, status=400)
 
+        # Vérifier si l'étudiant cible existe réellement dans cette session
+        if not Resultat.objects.filter(matricule=target_matricule, session_id=session_id).exists():
+            return Response({"error": "Impossible de payer : cet étudiant n'existe pas dans cette session"}, status=404)
+
         # Vérifier si déjà payé
         if Transaction.objects.filter(
             payer_matricule=payer_matricule, 
