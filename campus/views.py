@@ -82,18 +82,21 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 data = {"raw_response": response.text}
             
             if response.status_code in [200, 201]:
+                res_data = data.get("data", {})
+                # Important: use OPENPAY's reference if returned, otherwise our UUID
+                openpay_ref = res_data.get("reference") or transaction_ref
+                
                 Transaction.objects.create(
                     payer_matricule=payer_matricule,
                     target_matricule=target_matricule,
                     session_id=session_id,
                     amount=amount,
-                    transaction_ref=transaction_ref,
+                    transaction_ref=openpay_ref,
                     status="PENDING"
                 )
-                res_data = data.get("data", {})
                 return Response({
                     "payment_url": res_data.get("payment_url", ""), 
-                    "transaction_ref": transaction_ref
+                    "transaction_ref": openpay_ref
                 })
             else:
                 print(f"DEBUG OPENPAY ERROR {response.status_code}: {data}")
@@ -104,27 +107,47 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='webhook')
     def webhook(self, request):
+        # Log the incoming payload for debugging
+        print(f"DEBUG: Webhook received payload: {request.data}")
+        
         # Certains processeurs enveloppent les données dans 'data'
         payload = request.data.get('data', request.data)
         
-        # OpenPay utilise souvent 'transaction_ref' ou 'payment_token'
-        ref = payload.get('transaction_ref') or payload.get('payment_token')
-        status_val = payload.get('status', '').upper() # SUCCESS, PAID, COMPLETED...
+        # OpenPay uses 'reference' or 'transaction_ref'
+        metadata = payload.get('metadata') or {}
+        # Try to find reference in various possible fields
+        ref = (
+            metadata.get('transaction_ref') or 
+            payload.get('reference') or 
+            payload.get('transaction_ref') or 
+            payload.get('payment_token')
+        )
+        
+        status_val = str(payload.get('status', '')).upper() # success, SUCCESS, PAID, COMPLETED...
         
         if not ref:
+            print("ERROR: Missing reference in webhook payload")
             return Response({"error": "Référence manquante"}, status=400)
         
         try:
-            trans = Transaction.objects.get(transaction_ref=ref)
-            if status_val in ["SUCCESS", "PAID", "COMPLETED"]:
+            # Try to find transaction by reference
+            trans = Transaction.objects.filter(transaction_ref=ref).first()
+            
+            if not trans:
+                print(f"ERROR: Transaction with ref {ref} not found")
+                return Response({"error": "Transaction non trouvée"}, status=404)
+
+            if status_val in ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED"]:
                 trans.status = "SUCCESS"
-            elif status_val in ["FAILED", "EXPIRED", "CANCELLED"]:
+            elif status_val in ["FAILED", "EXPIRED", "CANCELLED", "ERROR"]:
                 trans.status = "FAILED"
+            
             trans.save()
+            print(f"INFO: Transaction {ref} updated to {trans.status}")
             return Response({"status": "ok", "message": f"Transaction {ref} mise à jour : {trans.status}"})
-        except Transaction.DoesNotExist:
-            # Si pas trouvé par ref, on cherche par payment_token si stocké (optionnel)
-            return Response({"error": "Transaction non trouvée"}, status=404)
+        except Exception as e:
+            print(f"CRITICAL: Webhook error: {str(e)}")
+            return Response({"error": str(e)}, status=500)
 
 class SessionExamenViewSet(viewsets.ModelViewSet):
     queryset = SessionExamen.objects.filter(is_active=True).order_by('-created_at')

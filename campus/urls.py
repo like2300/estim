@@ -21,5 +21,7 @@ router.register(r'niveaux', NiveauViewSet)
 router.register(r'filieres', FiliereViewSet)
 
 urlpatterns = [
+    path('callback/', TransactionViewSet.as_view({'post': 'webhook'})),
+    path('callback', TransactionViewSet.as_view({'post': 'webhook'})),
     path('', include(router.urls)),
 ]
