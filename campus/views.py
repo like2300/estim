@@ -5,11 +5,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import (Annonce, Cours, CampusApp, Notification, Etablissement, 
-                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction)
+                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction, Paiement)
 from .serializers import (AnnonceSerializer, CoursSerializer, CampusAppSerializer,
                                 NotificationSerializer, EtablissementSerializer,
                                 NiveauSerializer, FiliereSerializer, HeroImageSerializer, 
-                                ResultatSerializer, ExamenSerializer, SessionExamenSerializer, TransactionSerializer)
+                                ResultatSerializer, ExamenSerializer, SessionExamenSerializer, 
+                                TransactionSerializer, PaiementSerializer)
 
 class TransactionViewSet(viewsets.ModelViewSet):
     queryset = Transaction.objects.all()
@@ -29,11 +30,10 @@ class TransactionViewSet(viewsets.ModelViewSet):
             return Response({"error": "Impossible de payer : cet étudiant n'existe pas dans cette session"}, status=404)
 
         # Vérifier si déjà payé
-        if Transaction.objects.filter(
+        if Paiement.objects.filter(
             payer_matricule=payer_matricule, 
             target_matricule=target_matricule, 
-            session_id=session_id, 
-            status="SUCCESS"
+            session_id=session_id
         ).exists():
             return Response({"message": "Déjà payé", "already_paid": True})
 
@@ -139,6 +139,17 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
             if status_val in ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED"]:
                 trans.status = "SUCCESS"
+                # Créer un enregistrement dans Paiement
+                Paiement.objects.get_or_create(
+                    reference=ref,
+                    defaults={
+                        'payer_matricule': trans.payer_matricule,
+                        'target_matricule': trans.target_matricule,
+                        'session': trans.session,
+                        'amount': trans.amount,
+                        'payment_method': payload.get('payment_method', 'OpenPay')
+                    }
+                )
             elif status_val in ["FAILED", "EXPIRED", "CANCELLED", "ERROR"]:
                 trans.status = "FAILED"
             
@@ -152,6 +163,17 @@ class TransactionViewSet(viewsets.ModelViewSet):
 class SessionExamenViewSet(viewsets.ModelViewSet):
     queryset = SessionExamen.objects.filter(is_active=True).order_by('-created_at')
     serializer_class = SessionExamenSerializer
+
+class PaiementViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Paiement.objects.all().order_by('-created_at')
+    serializer_class = PaiementSerializer
+
+    def get_queryset(self):
+        queryset = Paiement.objects.all()
+        payer = self.request.query_params.get('payer_matricule')
+        if payer:
+            queryset = queryset.filter(payer_matricule=payer)
+        return queryset
 
 class AnnonceViewSet(viewsets.ModelViewSet):
     queryset = Annonce.objects.all().order_by('-date')
@@ -207,12 +229,11 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
 
         # 3. Vérification si c'est son propre résultat ou si payé
         if matricule != payer_matricule:
-            # Vérifier si une transaction SUCCESS existe
-            paid = Transaction.objects.filter(
+            # Vérifier si un enregistrement dans Paiement existe
+            paid = Paiement.objects.filter(
                 payer_matricule=payer_matricule, 
                 target_matricule=matricule, 
-                session_id=session_id, 
-                status="SUCCESS"
+                session_id=session_id
             ).exists()
             
             if not paid:

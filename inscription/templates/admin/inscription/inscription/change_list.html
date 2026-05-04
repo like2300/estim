@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+    {{ block.super }}
+    <li>
+        <a href="export-excel-global/{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="bg-primary-600 flex h-9 items-center justify-center rounded-md px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 transition-all duration-200 gap-2">
+            <span class="material-symbols-outlined !text-lg">download</span>
+            <span>Exporter Tout (Filtré)</span>
+        </a>
+    </li>
+{% endblock %}

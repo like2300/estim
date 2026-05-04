@@ -1,6 +1,20 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from .models import Annonce, Cours, CampusApp, Notification, Etablissement, Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen
+from .models import (Annonce, Cours, CampusApp, Notification, Etablissement, 
+                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction, Paiement)
+
+@admin.register(Transaction)
+class TransactionAdmin(ModelAdmin):
+    list_display = ('payer_matricule', 'target_matricule', 'amount', 'status', 'transaction_ref', 'created_at')
+    list_filter = ('status', 'session')
+    search_fields = ('payer_matricule', 'target_matricule', 'transaction_ref')
+
+@admin.register(Paiement)
+class PaiementAdmin(ModelAdmin):
+    list_display = ('payer_matricule', 'target_matricule', 'reference', 'amount', 'created_at')
+    list_filter = ('session',)
+    search_fields = ('payer_matricule', 'target_matricule', 'reference')
+    readonly_fields = ('created_at',)
 
 @admin.register(SessionExamen)
 class SessionExamenAdmin(ModelAdmin):

@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (AnnonceViewSet, CoursViewSet, CampusAppViewSet,
                         NotificationViewSet, EtablissementViewSet,
                         NiveauViewSet, FiliereViewSet, HeroImageViewSet, 
-                        ResultatViewSet, ExamenViewSet, SessionExamenViewSet, TransactionViewSet)
+                        ResultatViewSet, ExamenViewSet, SessionExamenViewSet, TransactionViewSet, PaiementViewSet)
 
 router = DefaultRouter()
 router.register(r'annonces', AnnonceViewSet)
@@ -15,6 +15,7 @@ router.register(r'notifications', NotificationViewSet)
 router.register(r'resultats', ResultatViewSet)
 router.register(r'sessions', SessionExamenViewSet)
 router.register(r'transactions', TransactionViewSet)
+router.register(r'paiements', PaiementViewSet)
 
 router.register(r'etablissements', EtablissementViewSet)
 router.register(r'niveaux', NiveauViewSet)
