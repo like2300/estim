@@ -13,15 +13,28 @@ from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from .models import FormConfig, Inscription
 from .serializers import InscriptionSerializer
 
 
+def verify_inscription(request, pk):
+    inscription = get_object_or_404(Inscription, pk=pk)
+    from django.utils import timezone
+
+    return render(
+        request,
+        "inscription/verify.html",
+        {"inscription": inscription, "now": timezone.now()},
+    )
+
+
 class InscriptionViewSet(viewsets.ModelViewSet):
     queryset = Inscription.objects.all()
     serializer_class = InscriptionSerializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     def perform_create(self, serializer):
         config = FormConfig.objects.filter(is_active=True).first()
@@ -32,8 +45,12 @@ class InscriptionViewSet(viewsets.ModelViewSet):
     def download_pdf(self, request, pk=None):
         import io
         import os
+        import ssl
+        import urllib.parse
+        import urllib.request
 
         from django.conf import settings
+        from django.urls import reverse
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
         from reportlab.lib.pagesizes import A4
@@ -51,34 +68,77 @@ class InscriptionViewSet(viewsets.ModelViewSet):
 
         inscription = get_object_or_404(Inscription, pk=pk)
 
+        # ── Mode administratif ─────────────────────────────────
+        is_admin = request.query_params.get("admin") == "1"
+        if is_admin and not (request.user and request.user.is_staff):
+            return Response(
+                {"detail": "Accès administratif non autorisé."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         buffer = io.BytesIO()
         page_w, page_h = A4  # 595.27 x 841.89
+        usable_w = page_w - 28 - 28  # 539.27
 
         doc = SimpleDocTemplate(
             buffer,
             pagesize=A4,
             rightMargin=28,
             leftMargin=28,
-            topMargin=22,
-            bottomMargin=22,
+            topMargin=20,
+            bottomMargin=18,
         )
 
+        # ── COULEURS ────────────────────────────────────────────
+        C_GREEN = colors.HexColor("#1a6b3c")
+        C_GREEN_DARK = colors.HexColor("#145530")
+        C_GREEN_LIGHT = colors.HexColor("#e8f5e9")
+        C_GOLD = colors.HexColor("#c8960a")
+        C_GOLD_LIGHT = colors.HexColor("#fdf6e3")
+        C_DARK = colors.HexColor("#1a2332")
+        C_GRAY_DARK = colors.HexColor("#555555")
+        C_GRAY = colors.HexColor("#777777")
+        C_GRAY_LIGHT = colors.HexColor("#999999")
+        C_GRAY_PALE = colors.HexColor("#d0d7de")
+        C_ROW_ALT = colors.HexColor("#f6f9f6")
+        C_WHITE = colors.white
+        C_ADMIN = colors.HexColor("#c62828")
+        C_ADMIN_BG = colors.HexColor("#fff5f5")
+
         # ── STYLES ──────────────────────────────────────────────
-        s_title = ParagraphStyle(
-            "sTitle",
-            fontSize=11,
-            leading=13,
+        s_title_header = ParagraphStyle(
+            "sTitleH",
+            fontSize=12.5,
+            leading=15,
             fontName="Helvetica-Bold",
-            textColor=colors.HexColor("#1a6b3c"),
+            textColor=C_GREEN,
             alignment=TA_CENTER,
-            spaceAfter=2,
+            spaceAfter=1,
+        )
+        s_agrement = ParagraphStyle(
+            "sAgrement",
+            fontSize=7.5,
+            leading=9.5,
+            fontName="Helvetica-BoldOblique",
+            textColor=C_GRAY_DARK,
+            alignment=TA_CENTER,
+            spaceAfter=0,
+        )
+        s_address_header = ParagraphStyle(
+            "sAddrH",
+            fontSize=6.5,
+            leading=8.5,
+            fontName="Helvetica",
+            textColor=C_GRAY,
+            alignment=TA_CENTER,
+            spaceAfter=0,
         )
         s_subtitle = ParagraphStyle(
             "sSub",
-            fontSize=8.5,
-            leading=11,
-            fontName="Helvetica",
-            textColor=colors.HexColor("#555555"),
+            fontSize=10.5,
+            leading=13,
+            fontName="Helvetica-Bold",
+            textColor=C_GOLD,
             alignment=TA_CENTER,
             spaceAfter=1,
         )
@@ -87,8 +147,8 @@ class InscriptionViewSet(viewsets.ModelViewSet):
             fontSize=9,
             leading=12,
             fontName="Helvetica-Bold",
-            textColor=colors.HexColor("#1a2332"),
-            alignment=TA_CENTER,
+            textColor=C_DARK,
+            alignment=TA_LEFT,
             spaceAfter=0,
         )
         s_section = ParagraphStyle(
@@ -96,49 +156,40 @@ class InscriptionViewSet(viewsets.ModelViewSet):
             fontSize=8,
             leading=10,
             fontName="Helvetica-Bold",
-            textColor=colors.white,
+            textColor=C_WHITE,
             alignment=TA_LEFT,
             spaceAfter=0,
         )
         s_label = ParagraphStyle(
             "sLabel",
-            fontSize=7.5,
-            leading=10,
+            fontSize=7,
+            leading=9.5,
             fontName="Helvetica-Bold",
-            textColor=colors.HexColor("#1a6b3c"),
+            textColor=C_GREEN,
             alignment=TA_LEFT,
         )
         s_value = ParagraphStyle(
             "sValue",
-            fontSize=8,
-            leading=10,
-            fontName="Helvetica",
-            textColor=colors.HexColor("#1a2332"),
-            alignment=TA_LEFT,
-        )
-        s_value_courier = ParagraphStyle(
-            "sValC",
-            fontSize=8,
-            leading=10,
-            fontName="Courier",
-            textColor=colors.HexColor("#1a2332"),
-            alignment=TA_LEFT,
-        )
-        s_doc_item = ParagraphStyle(
-            "sDoc",
-            fontSize=7,
+            fontSize=7.5,
             leading=9.5,
             fontName="Helvetica",
-            textColor=colors.HexColor("#333333"),
+            textColor=C_DARK,
             alignment=TA_LEFT,
-            leftIndent=10,
+        )
+        s_value_mono = ParagraphStyle(
+            "sValM",
+            fontSize=7.5,
+            leading=9.5,
+            fontName="Courier",
+            textColor=C_DARK,
+            alignment=TA_LEFT,
         )
         s_sig_label = ParagraphStyle(
             "sSig",
-            fontSize=7,
-            leading=9,
+            fontSize=6.5,
+            leading=8,
             fontName="Helvetica",
-            textColor=colors.HexColor("#777777"),
+            textColor=C_GRAY,
             alignment=TA_CENTER,
         )
         s_sig_name = ParagraphStyle(
@@ -146,51 +197,146 @@ class InscriptionViewSet(viewsets.ModelViewSet):
             fontSize=7.5,
             leading=9,
             fontName="Helvetica-Bold",
-            textColor=colors.HexColor("#1a2332"),
+            textColor=C_DARK,
             alignment=TA_CENTER,
         )
         s_footer = ParagraphStyle(
             "sFoot",
-            fontSize=7,
-            leading=9,
+            fontSize=6.5,
+            leading=8,
             fontName="Helvetica-BoldOblique",
-            textColor=colors.HexColor("#c8960a"),
+            textColor=C_GOLD,
             alignment=TA_CENTER,
         )
         s_ref = ParagraphStyle(
             "sRef",
+            fontSize=6,
+            leading=7.5,
+            fontName="Helvetica",
+            textColor=C_GRAY_LIGHT,
+            alignment=TA_RIGHT,
+        )
+        s_qr_text = ParagraphStyle(
+            "QRText",
+            fontSize=5.5,
+            leading=7.5,
+            textColor=C_GRAY,
+            alignment=TA_LEFT,
+        )
+        s_admin_badge = ParagraphStyle(
+            "sAdmBadge",
+            fontSize=6,
+            leading=7,
+            fontName="Helvetica-Bold",
+            textColor=C_WHITE,
+            alignment=TA_CENTER,
+        )
+        s_admin_label = ParagraphStyle(
+            "sAdmLbl",
+            fontSize=6,
+            leading=7.5,
+            fontName="Helvetica-Bold",
+            textColor=C_ADMIN,
+            alignment=TA_LEFT,
+        )
+        s_admin_value = ParagraphStyle(
+            "sAdmVal",
             fontSize=6.5,
             leading=8,
             fontName="Helvetica",
-            textColor=colors.HexColor("#999999"),
-            alignment=TA_RIGHT,
+            textColor=C_GRAY_DARK,
+            alignment=TA_LEFT,
         )
-
-        green = colors.HexColor("#1a6b3c")
-        green_light = colors.HexColor("#e8f5e9")
-        gold = colors.HexColor("#c8960a")
-        border_gray = colors.HexColor("#d0d7de")
-        row_alt = colors.HexColor("#f8faf8")
 
         elements = []
 
-        # ── HEADER ──────────────────────────────────────────────
-        # Logo
+        # ════════════════════════════════════════════════════════
+        # HEADER — Logo à gauche, texte à droite (sans encadrement)
+        # ════════════════════════════════════════════════════════
         logo_path = os.path.join(settings.BASE_DIR, "static", "imgs", "logo.png")
-        if os.path.exists(logo_path):
-            img = RLImage(logo_path, width=52, height=52)
-            img.hAlign = "CENTER"
-            elements.append(img)
-        else:
-            elements.append(Spacer(1, 4))
+        logo_size = 65
+        logo_cell = None
 
-        elements.append(Spacer(1, 4))
-        elements.append(
+        if os.path.exists(logo_path):
+            logo_raw = RLImage(logo_path, width=logo_size, height=logo_size)
+            logo_raw.hAlign = "LEFT"
+            logo_cell = logo_raw
+        else:
+            ph = Paragraph(
+                "LOGO",
+                ParagraphStyle(
+                    "ph",
+                    fontSize=7,
+                    fontName="Helvetica-Bold",
+                    textColor=C_GRAY_LIGHT,
+                    alignment=TA_CENTER,
+                ),
+            )
+            logo_cell = Table([[ph]], colWidths=[logo_size], rowHeights=[logo_size])
+            logo_cell.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+
+        header_texts = [
             Paragraph(
-                "ÉCOLE SUPÉRIEURE DE TECHNOLOGIE, D'INGÉNIERIE ET DE MANAGEMENT",
-                s_title,
+                "ÉCOLE SUPÉRIEURE DE TECHNOLOGIE, D'INGÉNIERIE ET DE<br/>MANAGEMENT",
+                s_title_header,
+            ),
+            Spacer(1, 1),
+            Paragraph("Agrément N° 0238 /MES-CAB-DGESUP", s_agrement),
+            Spacer(1, 2),
+            Paragraph(
+                "91 rue Moulla, croisement av. de la Tsiemé — face Poste Réf / Rond-Point Koulounda — Brazzaville",
+                s_address_header,
+            ),
+            Paragraph(
+                "Tél : 06 966 48 98  ·  WhatsApp : +242 05 559 87 27  ·  www.estim-ecole.com",
+                s_address_header,
+            ),
+        ]
+
+        # Badge admin dans le header
+        if is_admin:
+            badge_t = Table(
+                [[Paragraph("COPIE ADMINISTRATIVE", s_admin_badge)]],
+                colWidths=[100],
+                rowHeights=[13],
+            )
+            badge_t.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), C_ADMIN),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ]
+                )
+            )
+            header_texts.append(Spacer(1, 4))
+            header_texts.append(badge_t)
+
+        text_w = usable_w - logo_size - 15
+        header_table = Table(
+            [[logo_cell, header_texts]],
+            colWidths=[logo_size + 10, text_w],
+        )
+        header_table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (0, 0), (0, 0), "LEFT"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
             )
         )
+        elements.append(header_table)
+        elements.append(Spacer(1, 8))
+
+        # ════════════════════════════════════════════════════════
+        # TITRE — double filet vert clair + doré
+        # ════════════════════════════════════════════════════════
         elements.append(
             Paragraph(
                 f"FICHE D'INSCRIPTION — Session {inscription.annee_academique or '2025-2026'}",
@@ -200,28 +346,144 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         elements.append(Spacer(1, 2))
         elements.append(
             HRFlowable(
-                width="100%", thickness=1.5, color=green, spaceAfter=3, spaceBefore=0
+                width="100%",
+                thickness=0.4,
+                color=C_GREEN_LIGHT,
+                spaceAfter=0,
+                spaceBefore=0,
             )
         )
         elements.append(
-            Paragraph(
-                f"<b>Établissement :</b> {inscription.target_etablissement or '—'}",
-                s_etab,
+            HRFlowable(
+                width="100%", thickness=1.6, color=C_GOLD, spaceAfter=7, spaceBefore=0
             )
         )
-        elements.append(Spacer(1, 6))
 
-        # ── IDENTITÉ (2 colonnes) ──────────────────────────────
+        # ════════════════════════════════════════════════════════
+        # ÉTABLISSEMENT + PHOTO encadrée
+        # ════════════════════════════════════════════════════════
+        etab_para = Paragraph(
+            f"<b>Établissement :</b> {inscription.target_etablissement or '—'}",
+            s_etab,
+        )
+
+        photo_cell = None
+        has_photo = False
+        if inscription.photo:
+            try:
+                photo_path = inscription.photo.path
+                if os.path.exists(photo_path):
+                    p_img = RLImage(photo_path, width=78, height=102)
+                    p_img.hAlign = "CENTER"
+                    photo_cell = p_img
+                    has_photo = True
+            except Exception:
+                pass
+
+        if not has_photo:
+            ph_txt = Paragraph(
+                "PHOTO",
+                ParagraphStyle(
+                    "phP",
+                    fontSize=6,
+                    fontName="Helvetica-Bold",
+                    textColor=C_GRAY_LIGHT,
+                    alignment=TA_CENTER,
+                ),
+            )
+            ph_tbl = Table([[ph_txt]], colWidths=[78], rowHeights=[102])
+            ph_tbl.setStyle(
+                TableStyle(
+                    [
+                        ("BOX", (0, 0), (-1, -1), 0.4, C_GRAY_PALE),
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ]
+                )
+            )
+            photo_cell = ph_tbl
+
+        # Encadrer la photo
+        photo_frame = Table(
+            [[photo_cell]],
+            colWidths=[86],
+            rowHeights=[110],
+        )
+        photo_frame.setStyle(
+            TableStyle(
+                [
+                    ("BOX", (0, 0), (-1, -1), 1, C_GREEN),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+
+        etab_w = usable_w - 86 - 8
+        header_sub_table = Table(
+            [[etab_para, photo_frame]],
+            colWidths=[etab_w, 86],
+        )
+        header_sub_table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        elements.append(header_sub_table)
+        elements.append(Spacer(1, 8))
+
+        # ════════════════════════════════════════════════════════
+        # HELPERS
+        # ════════════════════════════════════════════════════════
         def row(label, value):
             return [
                 Paragraph(label, s_label),
-                Paragraph(str(value) if value else "—", s_value_courier),
+                Paragraph(str(value) if value else "—", s_value_mono),
+            ]
+
+        def row4(l1, v1, l2, v2):
+            return [
+                Paragraph(l1, s_label),
+                Paragraph(str(v1) if v1 else "—", s_value_mono),
+                Paragraph(l2, s_label),
+                Paragraph(str(v2) if v2 else "—", s_value_mono),
             ]
 
         def section_header(text):
             return [[Paragraph(text, s_section)]]
 
-        # Section : Identité
+        def apply_section_style(table_obj, num_rows):
+            """Applique le style standardisé à une section."""
+            cmds = [
+                ("BACKGROUND", (0, 0), (-1, 0), C_GREEN_DARK),
+                ("SPAN", (0, 0), (-1, 0)),
+                ("TOPPADDING", (0, 0), (-1, 0), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+                ("LEFTPADDING", (0, 0), (-1, 0), 8),
+                ("TOPPADDING", (0, 1), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+                ("LEFTPADDING", (0, 1), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 1), (-1, -1), 6),
+                ("GRID", (0, 0), (-1, -1), 0.35, C_GRAY_PALE),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.5, C_GOLD),
+            ]
+            # Alternance de couleurs sur les lignes de données
+            for i in range(1, num_rows):
+                if i % 2 == 0:
+                    cmds.append(("BACKGROUND", (0, i), (-1, i), C_ROW_ALT))
+            table_obj.setStyle(TableStyle(cmds))
+
+        # ════════════════════════════════════════════════════════
+        # I. IDENTITÉ
+        # ════════════════════════════════════════════════════════
         ident_data = section_header("I. IDENTITÉ")
         ident_data.append(row("Nom(s)", inscription.last_name))
         ident_data.append(row("Prénom(s)", inscription.first_name))
@@ -239,197 +501,197 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         ident_data.append(row("Email", inscription.email or "Non fourni"))
         ident_data.append(row("Adresse", inscription.adresse))
 
-        t_ident = Table(ident_data, colWidths=[135, 350])
-        t_ident.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), green),
-                    ("SPAN", (0, 0), (-1, 0)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("GRID", (0, 0), (-1, -1), 0.4, border_gray),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LINEBELOW", (0, 0), (-1, 0), 1.2, green),
-                ]
-            )
-        )
+        t_ident = Table(ident_data, colWidths=[140, usable_w - 140])
+        apply_section_style(t_ident, len(ident_data))
         elements.append(t_ident)
-        elements.append(Spacer(1, 5))
+        elements.append(Spacer(1, 4))
 
-        # Section : Situation (2 colonnes avec identité tuteur)
-        sit_data = section_header("II. SITUATION CIVILE & TUTEUR")
+        # ════════════════════════════════════════════════════════
+        # II. SITUATION CIVILE & TUTEUR
+        # ════════════════════════════════════════════════════════
         civil_text = inscription.civil or "—"
         occ_text = inscription.occupation or "—"
         if inscription.profession:
             occ_text += f" ({inscription.profession})"
-        sit_data.append(
-            [
-                Paragraph("Statut matrimonial", s_label),
-                Paragraph(civil_text, s_value),
-                Paragraph("Occupation", s_label),
-                Paragraph(occ_text, s_value),
-            ]
-        )
-        sit_data.append(
-            [
-                Paragraph("Nom du tuteur", s_label),
-                Paragraph(inscription.tuteur or "—", s_value_courier),
-                Paragraph("Tél. tuteur", s_label),
-                Paragraph(inscription.tel_tuteur or "—", s_value_courier),
-            ]
-        )
 
-        t_sit = Table(sit_data, colWidths=[95, 155, 95, 140])
-        t_sit.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), green),
-                    ("SPAN", (0, 0), (-1, 0)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("GRID", (0, 0), (-1, -1), 0.4, border_gray),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LINEBELOW", (0, 0), (-1, 0), 1.2, green),
-                ]
+        sit_data = section_header("II. SITUATION CIVILE & TUTEUR")
+        sit_data.append(row4("Statut matrimonial", civil_text, "Occupation", occ_text))
+        sit_data.append(
+            row4(
+                "Nom du tuteur",
+                inscription.tuteur,
+                "Tél. tuteur",
+                inscription.tel_tuteur,
             )
         )
-        elements.append(t_sit)
-        elements.append(Spacer(1, 5))
 
-        # Section : Études (2 colonnes)
+        col4 = [92, usable_w / 2 - 92, 92, usable_w / 2 - 92]
+        t_sit = Table(sit_data, colWidths=col4)
+        apply_section_style(t_sit, len(sit_data))
+        elements.append(t_sit)
+        elements.append(Spacer(1, 4))
+
+        # ════════════════════════════════════════════════════════
+        # III. ÉTUDES ANTÉRIEURES
+        # ════════════════════════════════════════════════════════
         etu_data = section_header("III. ÉTUDES ANTÉRIEURES")
         etu_data.append(
-            [
-                Paragraph("Série du BAC", s_label),
-                Paragraph(inscription.bac_serie or "—", s_value_courier),
-                Paragraph("Année obt.", s_label),
-                Paragraph(inscription.bac_annee or "—", s_value_courier),
-            ]
-        )
-        etu_data.append(
-            [
-                Paragraph("Étab. du BAC", s_label),
-                Paragraph(inscription.bac_etablissement or "—", s_value_courier),
-                Paragraph("Option", s_label),
-                Paragraph(inscription.dernier_option or "—", s_value_courier),
-            ]
-        )
-        etu_data.append(
-            [
-                Paragraph("Dernier étab.", s_label),
-                Paragraph(inscription.dernier_etab or "—", s_value_courier),
-                Paragraph("Année", s_label),
-                Paragraph(inscription.dernier_annee or "—", s_value_courier),
-            ]
-        )
-
-        t_etu = Table(etu_data, colWidths=[95, 155, 95, 140])
-        t_etu.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), green),
-                    ("SPAN", (0, 0), (-1, 0)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("GRID", (0, 0), (-1, -1), 0.4, border_gray),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LINEBELOW", (0, 0), (-1, 0), 1.2, green),
-                ]
+            row4(
+                "Série du BAC",
+                inscription.bac_serie,
+                "Année obt.",
+                inscription.bac_annee,
             )
         )
-        elements.append(t_etu)
-        elements.append(Spacer(1, 5))
+        etu_data.append(
+            row4(
+                "Étab. du BAC",
+                inscription.bac_etablissement,
+                "Option",
+                inscription.dernier_option,
+            )
+        )
+        etu_data.append(
+            row4(
+                "Dernier étab.",
+                inscription.dernier_etab,
+                "Année",
+                inscription.dernier_annee,
+            )
+        )
 
-        # Section : Choix formation (2 colonnes)
+        t_etu = Table(etu_data, colWidths=col4)
+        apply_section_style(t_etu, len(etu_data))
+        elements.append(t_etu)
+        elements.append(Spacer(1, 4))
+
+        # ════════════════════════════════════════════════════════
+        # IV. CHOIX DE FORMATION
+        # ════════════════════════════════════════════════════════
         choi_data = section_header("IV. CHOIX DE FORMATION")
         choi_data.append(
-            [
-                Paragraph("Cycle souhaité", s_label),
-                Paragraph(inscription.choix_cycle or "—", s_value),
-                Paragraph("Niv. informatique", s_label),
-                Paragraph(inscription.info_level or "—", s_value),
-            ]
-        )
-        choi_data.append(
-            [
-                Paragraph("Filière principale", s_label),
-                Paragraph(inscription.choix_filiere or "—", s_value_courier),
-                Paragraph("Filière alt.", s_label),
-                Paragraph(inscription.alternative_filiere or "Aucune", s_value_courier),
-            ]
-        )
-
-        t_choi = Table(choi_data, colWidths=[95, 155, 95, 140])
-        t_choi.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), green),
-                    ("SPAN", (0, 0), (-1, 0)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("GRID", (0, 0), (-1, -1), 0.4, border_gray),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LINEBELOW", (0, 0), (-1, 0), 1.2, green),
-                ]
+            row4(
+                "Cycle souhaité",
+                inscription.choix_cycle,
+                "Niv. informatique",
+                inscription.info_level,
             )
         )
+        choi_data.append(
+            row4(
+                "Filière principale",
+                inscription.choix_filiere,
+                "Filière alt.",
+                inscription.alternative_filiere or "Aucune",
+            )
+        )
+
+        t_choi = Table(choi_data, colWidths=col4)
+        apply_section_style(t_choi, len(choi_data))
         elements.append(t_choi)
         elements.append(Spacer(1, 6))
 
-        # ── PIÈCES À FOURNIR ───────────────────────────────────
-        docs_header = [[Paragraph("V. PIÈCES ADMINISTRATIVES À FOURNIR", s_section)]]
-        docs_items = [
-            "1.  Original du diplôme ou attestation de réussite au BAC",
-            "2.  Relevé de notes du BAC (copie certifiée)",
-            "3.  Extrait d'acte de naissance (copie intégrale)",
-            "4.  Copie légalisée de la CIN ou passeport",
-            "5.  4 photos d'identité récentes format passeport",
-            "6.  Si fonctionnaire : attestation d'emploi ou décision de mise en disponibilité",
-        ]
-        docs_rows = docs_header[:]
-        # 2 colonnes de pièces
-        half = (len(docs_items) + 1) // 2
-        left_docs = docs_items[:half]
-        right_docs = docs_items[half:]
-        for i in range(max(len(left_docs), len(right_docs))):
-            docs_rows.append(
-                [
-                    Paragraph(left_docs[i] if i < len(left_docs) else "", s_doc_item),
-                    Paragraph(right_docs[i] if i < len(right_docs) else "", s_doc_item),
+        # ════════════════════════════════════════════════════════
+        # SECTION ADMIN (si activée)
+        # ════════════════════════════════════════════════════════
+        if is_admin:
+
+            def arow(label, value):
+                return [
+                    Paragraph(label, s_admin_label),
+                    Paragraph(str(value) if value else "—", s_admin_value),
                 ]
+
+            admin_hdr = Table(
+                [
+                    [
+                        Paragraph(
+                            "INFORMATIONS ADMINISTRATIVES",
+                            ParagraphStyle(
+                                "admH",
+                                fontSize=7,
+                                leading=9,
+                                fontName="Helvetica-Bold",
+                                textColor=C_WHITE,
+                                alignment=TA_LEFT,
+                            ),
+                        )
+                    ]
+                ],
+                colWidths=[usable_w],
+            )
+            admin_hdr.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), C_ADMIN),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ]
+                )
             )
 
-        t_docs = Table(docs_rows, colWidths=[242, 243])
-        t_docs.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#5a3e00")),
-                    ("SPAN", (0, 0), (-1, 0)),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2.5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#5a3e00")),
-                    ("LINEBELOW", (0, 0), (-1, 0), 1.2, colors.HexColor("#5a3e00")),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ]
-            )
-        )
-        elements.append(t_docs)
-        elements.append(Spacer(1, 8))
+            admin_rows = [
+                arow("ID interne", str(inscription.pk)),
+                arow(
+                    "Date de création",
+                    inscription.created_at.strftime("%d/%m/%Y %H:%M:%S")
+                    if inscription.created_at
+                    else "—",
+                ),
+                arow(
+                    "Dernière modification",
+                    inscription.updated_at.strftime("%d/%m/%Y %H:%M:%S")
+                    if inscription.updated_at
+                    else "—",
+                ),
+                arow("Adresse IP", getattr(inscription, "ip_address", "—")),
+            ]
+            ua = getattr(inscription, "user_agent", "—")
+            if ua and len(ua) > 90:
+                ua = ua[:90] + "…"
+            admin_rows.append(arow("User-Agent", ua))
 
-        # ── SIGNATURES ──────────────────────────────────────────
+            admin_body = Table(admin_rows, colWidths=[100, usable_w - 100])
+            admin_cmds = [
+                ("GRID", (0, 0), (-1, -1), 0.3, C_ADMIN),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+            for i in range(len(admin_rows)):
+                bg = C_ADMIN_BG if i % 2 == 0 else C_WHITE
+                admin_cmds.append(("BACKGROUND", (0, i), (-1, i), bg))
+            admin_body.setStyle(TableStyle(admin_cmds))
+
+            admin_block = Table(
+                [[admin_hdr], [admin_body]],
+                colWidths=[usable_w],
+            )
+            admin_block.setStyle(
+                TableStyle(
+                    [
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ]
+                )
+            )
+            elements.append(admin_block)
+            elements.append(Spacer(1, 6))
+
+        # ════════════════════════════════════════════════════════
+        # SIGNATURES
+        # ════════════════════════════════════════════════════════
         sig_line = HRFlowable(
-            width="85%",
-            thickness=0.6,
-            color=colors.HexColor("#999999"),
+            width="78%",
+            thickness=0.5,
+            color=C_GRAY_LIGHT,
             spaceAfter=2,
-            spaceBefore=22,
+            spaceBefore=20,
         )
-
         sig_left = [
             Paragraph("Signature de l'étudiant(e)", s_sig_label),
             sig_line,
@@ -441,36 +703,100 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         sig_right = [
             Paragraph("Signature & Cachet de l'administration", s_sig_label),
             sig_line,
-            Paragraph("Cachet", s_sig_name),
+            Spacer(1, 2),
+            Paragraph("Cachet de l'établissement", s_sig_name),
         ]
 
-        t_sig = Table([[sig_left, sig_right]], colWidths=[242, 243])
+        half_w = (usable_w - 16) / 2
+        t_sig = Table([[sig_left, sig_right]], colWidths=[half_w, half_w])
         t_sig.setStyle(
             TableStyle(
                 [
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 12),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
                 ]
             )
         )
         elements.append(t_sig)
-        elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 10))
 
-        # ── FOOTER ──────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════
+        # QR CODE
+        # ════════════════════════════════════════════════════════
+        verify_url = request.build_absolute_uri(
+            reverse("verify_inscription", args=[inscription.pk])
+        )
+        qr_url = (
+            f"https://api.qrserver.com/v1/create-qr-code/"
+            f"?size=180x180&data={urllib.parse.quote(verify_url)}"
+            f"&color=1a6b3c&bgcolor=f8faf8"
+        )
+
+        try:
+            context = ssl._create_unverified_context()
+            with urllib.request.urlopen(qr_url, timeout=20, context=context) as resp:
+                qr_io = io.BytesIO(resp.read())
+                qr_img = RLImage(qr_io, width=52, height=52)
+                qr_img.hAlign = "LEFT"
+
+            qr_para = Paragraph(
+                "<b>VÉRIFICATION DIGITALE</b><br/>"
+                "Scannez ce QR code pour vérifier<br/>"
+                "l'authenticité de cette fiche.",
+                s_qr_text,
+            )
+
+            qr_inner = Table([[qr_img, qr_para]], colWidths=[58, 120])
+            qr_inner.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ]
+                )
+            )
+
+            # Encadrer le bloc QR
+            qr_block = Table([[qr_inner]], colWidths=[185])
+            qr_block.setStyle(
+                TableStyle(
+                    [
+                        ("BOX", (0, 0), (-1, -1), 0.5, C_GREEN_LIGHT),
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8faf8")),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
+            elements.append(qr_block)
+        except Exception as e:
+            print(f"QR Code generation failed: {e}")
+
+        # ════════════════════════════════════════════════════════
+        # FOOTER
+        # ════════════════════════════════════════════════════════
+        elements.append(Spacer(1, 4))
         elements.append(
             HRFlowable(
                 width="100%",
-                thickness=0.8,
-                color=border_gray,
-                spaceAfter=3,
-                spaceBefore=0,
+                thickness=0.4,
+                color=C_GRAY_PALE,
+                spaceAfter=2,
+                spaceBefore=4,
             )
         )
-        # Référence en bas à droite
-        ref_text = f"Réf: ESTIM-{inscription.target_etablissement or 'XX'}-{str(inscription.pk).zfill(4)} — Généré le {inscription.created_at.strftime('%d/%m/%Y %H:%M') if inscription.created_at else '—'}"
-        # add margin
-        elements.append(Spacer(1, 9))
+
+        elements.append(Spacer(1, 1))
+
+        ref_text = (
+            f"Réf: {inscription.target_etablissement or 'XX'}-"
+            f"{str(inscription.pk).zfill(4)} — "
+            f"Généré le {inscription.created_at.strftime('%d/%m/%Y à %H:%M') if inscription.created_at else '—'}"
+        )
         elements.append(Paragraph(ref_text, s_ref))
 
         # ── BUILD ───────────────────────────────────────────────
@@ -479,8 +805,9 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         buffer.seek(0)
         response = HttpResponse(buffer, content_type="application/pdf")
         safe_name = f"{inscription.last_name or 'inscription'}".replace(" ", "_")
+        suffix = "_ADMIN" if is_admin else ""
         response["Content-Disposition"] = (
-            f'attachment; filename="Fiche_Inscription_{safe_name}.pdf"'
+            f'attachment; filename="Fiche_Inscription_{safe_name}{suffix}.pdf"'
         )
         return response
 

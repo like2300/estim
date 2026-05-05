@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vérification d'Inscription - ESTIM</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #1a6b3c;
+            --secondary-color: #c8960a;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --border-color: #e0e0e0;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 100%;
+            overflow: hidden;
+            border-top: 8px solid var(--primary-color);
+        }
+
+        .header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .photo-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .student-photo {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid var(--secondary-color);
+            background-color: #ddd;
+        }
+
+        .status {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .status-badge {
+            background-color: #e8f5e9;
+            color: var(--primary-color);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: inline-block;
+            border: 1px solid var(--primary-color);
+        }
+
+        .info-group {
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .info-label {
+            font-size: 0.75rem;
+            color: #777;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+        }
+
+        .info-value {
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--text-color);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 0.8rem;
+            color: #999;
+            background-color: #fafafa;
+        }
+
+        .logo {
+            max-width: 80px;
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                border-radius: 10px;
+            }
+            .content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Validation Digitale</h1>
+            <p style="margin: 5px 0 0; font-size: 0.8rem; opacity: 0.9;">Fiche d'Inscription Certifiée</p>
+        </div>
+        
+        <div class="content">
+            <div class="photo-container">
+                {% if inscription.photo %}
+                    <img src="{{ inscription.photo.url }}" alt="Photo étudiant" class="student-photo">
+                {% else %}
+                    <div class="student-photo" style="display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #aaa;">👤</div>
+                {% endif %}
+            </div>
+
+            <div class="status">
+                <span class="status-badge">✓ DOSSIER ENREGISTRÉ</span>
+            </div>
+
+            <div class="info-group">
+                <div class="info-label">Nom Complet</div>
+                <div class="info-value">{{ inscription.last_name }} {{ inscription.first_name }}</div>
+            </div>
+
+            <div class="info-group">
+                <div class="info-label">Établissement</div>
+                <div class="info-value">{{ inscription.target_etablissement }}</div>
+            </div>
+
+            <div class="info-group">
+                <div class="info-label">Cycle & Filière</div>
+                <div class="info-value">{{ inscription.choix_cycle }} - {{ inscription.choix_filiere }}</div>
+            </div>
+
+            <div class="info-group">
+                <div class="info-label">Session Académique</div>
+                <div class="info-value">{{ inscription.annee_academique|default:"2025-2026" }}</div>
+            </div>
+
+            <div class="info-group">
+                <div class="info-label">ID Inscription</div>
+                <div class="info-value">ESTIM-{{ inscription.pk|stringformat:"04d" }}</div>
+            </div>
+            
+            <div class="info-group" style="border-bottom: none;">
+                <div class="info-label">Date d'enregistrement</div>
+                <div class="info-value">{{ inscription.created_at|date:"d/m/Y H:i" }}</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>© {{ now|date:"Y" }} ESTIM - École Supérieure de Technologie, d'Ingénierie et de Management</p>
+            <p>Brazzaville, République du Congo</p>
+        </div>
+    </div>
+</body>
+</html>

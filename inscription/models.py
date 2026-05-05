@@ -13,6 +13,7 @@ class Inscription(models.Model):
     # Branch Selection
     target_etablissement = models.CharField(max_length=255, verbose_name="ESTIM d'inscription")
     annee_academique = models.CharField(max_length=20, null=True, blank=True, verbose_name="Année Académique")
+    photo = models.ImageField(upload_to="inscriptions/photos/", null=True, blank=True, verbose_name="Photo d'identité")
     
     # Identité
     last_name = models.CharField(max_length=255, verbose_name="Nom(s)")
