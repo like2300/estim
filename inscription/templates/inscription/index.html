@@ -798,6 +798,13 @@
                             <canvas id="canvas" style="display: none; width: 100%; height: 100%; object-fit: cover;"></canvas>
                             <img id="photo-preview" src="" style="display: none; width: 100%; height: 100%; object-fit: cover;">
                             
+                            <div id="start-camera-overlay" style="position: absolute; z-index: 10; display: none; flex-direction: column; align-items: center; gap: 10px;">
+                                <button type="button" onclick="initCamera()" class="btn-primary" style="padding: 10px 20px; border-radius: 30px;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                    Démarrer la caméra
+                                </button>
+                            </div>
+
                             <div id="camera-overlay" style="position: absolute; border: 2px dashed rgba(255,255,255,0.5); width: 80%; height: 80%; border-radius: 50%;"></div>
                         </div>
 
@@ -1063,28 +1070,46 @@
             const canvas = document.getElementById('canvas');
             const photoPreview = document.getElementById('photo-preview');
             const photoInput = document.getElementById('photo-input');
+            const startOverlay = document.getElementById('start-camera-overlay');
 
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } });
+                const constraints = { 
+                    video: { 
+                        facingMode: "user",
+                        width: { ideal: 640 },
+                        height: { ideal: 853 } // 3:4 aspect ratio
+                    } 
+                };
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
-                // Added for better compatibility with mobile browsers
                 video.onloadedmetadata = () => {
                     video.play().catch(e => console.error("Video play failed:", e));
+                    startOverlay.style.display = 'none';
                 };
             } catch (err) {
                 console.error("Camera error:", err);
-                showToast("Impossible d'accéder à la caméra. Vérifiez les permissions.");
+                startOverlay.style.display = 'flex';
+                showToast("Veuillez cliquer sur 'Démarrer la caméra' pour continuer.");
             }
 
             snapBtn.addEventListener('click', () => {
+                // Flash effect
+                const wrapper = document.getElementById('camera-wrapper');
+                wrapper.style.transition = 'none';
+                wrapper.style.opacity = '0.5';
+                setTimeout(() => {
+                    wrapper.style.transition = 'opacity 0.3s';
+                    wrapper.style.opacity = '1';
+                }, 50);
+
                 const context = canvas.getContext('2d');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 853;
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 
                 const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
                 
-                // --- Brightness Check ---
+                // --- Quality Checks (Informative only, no return) ---
                 const data = imageData.data;
                 let brightness = 0;
                 for (let i = 0; i < data.length; i += 4) {
@@ -1092,22 +1117,14 @@
                 }
                 brightness /= (data.length / 4);
 
-                if (brightness < 40) {
-                    showToast("La photo est trop sombre. Veuillez vous éclairer davantage.");
-                    return;
-                }
-                if (brightness > 220) {
-                    showToast("La photo est trop surexposée. Veuillez réduire la lumière.");
-                    return;
-                }
-
-                // --- Blur Detection (Laplacian Variance) ---
                 const blurScore = detectBlur(imageData);
-                console.log("Blur Score (Variance):", blurScore);
                 
-                if (blurScore < 100) { // Threshold for blurriness
-                    showToast("La photo est floue. Veuillez stabiliser l'appareil et reprendre.");
-                    return;
+                if (brightness < 30) {
+                    showToast("Attention : La photo semble trop sombre.");
+                } else if (brightness > 240) {
+                    showToast("Attention : La photo semble trop éclairée.");
+                } else if (blurScore < 50) {
+                    showToast("Attention : La photo semble un peu floue.");
                 }
 
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
