@@ -213,7 +213,9 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
     def consulter(self, request):
         matricule = request.query_params.get('matricule')
         session_id = request.query_params.get('session')
-        payer_matricule = request.query_params.get('payer_matricule')
+        # Si le matricule du payeur n'est pas fourni, on suppose que c'est l'étudiant lui-même
+        # ou quelqu'un qui a payé "anonymement" (auquel cas payer_matricule = target_matricule)
+        payer_matricule = request.query_params.get('payer_matricule') or matricule
 
         if not matricule or not session_id:
             return Response({"error": "Matricule et session sont requis"}, status=400)
@@ -225,25 +227,43 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"error": "Session non trouvée"}, status=404)
 
         # 2. Vérifier si les résultats existent pour ce matricule dans cette session
-        # AVANT de demander un paiement
         if not Resultat.objects.filter(matricule=matricule, session=session).exists():
             return Response({"error": "Aucun résultat trouvé pour ce matricule dans cette session"}, status=404)
 
         # 3. Vérification si c'est son propre résultat ou si payé
-        if matricule != payer_matricule:
-            # Vérifier si un enregistrement dans Paiement existe
+        # Si le matricule consulté est différent du matricule du payeur configuré dans l'app
+        # (Note: ici payer_matricule est déjà 'matricule' par défaut si absent du query_params)
+        
+        # On ne demande un paiement que si le matricule consulté est différent de celui de l'utilisateur
+        # ET qu'aucun paiement n'a été trouvé.
+        # Si payer_matricule == matricule (cas par défaut), le filtre trouvera le paiement 'anonyme'
+        
+        # On récupère le vrai matricule de l'utilisateur (celui envoyé par l'app si existant)
+        user_app_matricule = request.query_params.get('payer_matricule')
+        
+        if user_app_matricule and user_app_matricule != matricule:
+            # L'utilisateur est identifié et consulte quelqu'un d'autre
             paid = Paiement.objects.filter(
-                payer_matricule=payer_matricule, 
+                payer_matricule=user_app_matricule, 
                 target_matricule=matricule, 
                 session_id=session_id
             ).exists()
-            
-            if not paid:
-                return Response({
-                    "requires_payment": True,
-                    "amount": 100,
-                    "message": "La consultation du résultat d'un autre étudiant nécessite un paiement de 100 XAF."
-                }, status=200)
+        else:
+            # L'utilisateur n'est pas identifié OU il consulte son propre matricule
+            # On vérifie s'il a payé pour lui-même (payer=target)
+            paid = Paiement.objects.filter(
+                payer_matricule=matricule, 
+                target_matricule=matricule, 
+                session_id=session_id
+            ).exists()
+
+        # Si ce n'est pas son propre résultat (selon l'app) et qu'il n'a pas payé
+        if user_app_matricule != matricule and not paid:
+             return Response({
+                "requires_payment": True,
+                "amount": 100,
+                "message": "La consultation du résultat d'un autre étudiant nécessite un paiement de 100 XAF."
+            }, status=200)
 
         # 4. Vérifier si les résultats sont disponibles (ouverts par l'admin)
         if not session.results_available:
