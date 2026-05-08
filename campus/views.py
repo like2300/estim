@@ -18,16 +18,16 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def create_pay_link(self, request):
-        payer_matricule = request.data.get('payer_matricule')
         target_matricule = request.data.get('target_matricule')
         session_id = request.data.get('session_id')
+        payer_matricule = request.data.get('payer_matricule') or target_matricule
         
-        if not all([payer_matricule, target_matricule, session_id]):
-            return Response({"error": "Données manquantes"}, status=400)
+        if not target_matricule or not session_id:
+            return Response({"error": "Matricule cible et ID de session sont requis"}, status=400)
 
         # Vérifier si l'étudiant cible existe réellement dans cette session
         if not Resultat.objects.filter(matricule=target_matricule, session_id=session_id).exists():
-            return Response({"error": "Impossible de payer : cet étudiant n'existe pas dans cette session"}, status=404)
+            return Response({"error": f"L'étudiant avec le matricule {target_matricule} n'existe pas dans cette session"}, status=404)
 
         # Vérifier si déjà payé
         if Paiement.objects.filter(
@@ -46,7 +46,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
         if etudiant:
             payer_name = etudiant.nom_etudiant
 
-        # Payload selon la documentation "Créer un lien de paiement"
+        # Payload selon la documentation OpenPay CG
         payload = {
             "amount": amount,
             "description": f"Consultation résultat {target_matricule}",
@@ -68,8 +68,9 @@ class TransactionViewSet(viewsets.ModelViewSet):
             "Accept": "application/json"
         }
         
+        print(f"DEBUG: Sending to OpenPay: {payload}")
+        
         try:
-            # URL exacte de la doc: https://api.openpay-cg.com/v1/payment-link
             response = requests.post(
                 "https://api.openpay-cg.com/v1/payment-link", 
                 json=payload, 
@@ -81,10 +82,12 @@ class TransactionViewSet(viewsets.ModelViewSet):
             except:
                 data = {"raw_response": response.text}
             
+            print(f"DEBUG: OpenPay response {response.status_code}: {data}")
+            
             if response.status_code in [200, 201]:
                 res_data = data.get("data", {})
-                # Important: use OPENPAY's reference if returned, otherwise our UUID
-                openpay_ref = res_data.get("reference") or transaction_ref
+                # Important: use payment_token or reference if returned
+                openpay_ref = res_data.get("payment_token") or res_data.get("reference") or transaction_ref
                 
                 Transaction.objects.create(
                     payer_matricule=payer_matricule,
@@ -99,10 +102,9 @@ class TransactionViewSet(viewsets.ModelViewSet):
                     "transaction_ref": openpay_ref
                 })
             else:
-                print(f"DEBUG OPENPAY ERROR {response.status_code}: {data}")
-                return Response({"error": "Erreur OpenPay", "details": data}, status=status.HTTP_502_BAD_GATEWAY)
+                return Response({"error": "Erreur lors de la communication avec OpenPay", "details": data}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception as e:
-            print(f"CRITICAL ERROR: {str(e)}")
+            print(f"CRITICAL ERROR calling OpenPay: {str(e)}")
             return Response({"error": str(e)}, status=500)
 
     @action(detail=False, methods=['post'], url_path='webhook')
