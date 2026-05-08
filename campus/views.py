@@ -110,22 +110,36 @@ class TransactionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='webhook')
     def webhook(self, request):
         # Log the incoming payload for debugging
-        print(f"DEBUG: Webhook received payload: {request.data}")
+        print(f"--- WEBHOOK RECEIVED ---")
+        print(f"Headers: {request.headers}")
+        print(f"Data: {request.data}")
         
         # Certains processeurs enveloppent les données dans 'data'
         payload = request.data.get('data', request.data)
         
-        # OpenPay uses 'reference' or 'transaction_ref'
+        # OpenPay uses 'payment_token' as primary reference based on our create_pay_link
         metadata = payload.get('metadata') or {}
-        # Try to find reference in various possible fields
-        ref = (
-            metadata.get('transaction_ref') or 
-            payload.get('reference') or 
-            payload.get('transaction_ref') or 
-            payload.get('payment_token')
-        )
         
-        status_val = str(payload.get('status', '')).upper() # success, SUCCESS, PAID, COMPLETED...
+        # Liste des champs possibles pour la référence
+        possible_refs = [
+            payload.get('payment_token'),
+            payload.get('reference'),
+            payload.get('transaction_ref'),
+            metadata.get('transaction_ref'),
+            payload.get('payment_id'),
+            request.data.get('payment_token') # Au cas où c'est à la racine
+        ]
+        
+        ref = next((r for r in possible_refs if r), None)
+        
+        # Status detection
+        status_val = str(payload.get('status', '')).upper()
+        if not status_val:
+            # Essayer de voir si c'est un succès direct
+            if payload.get('success') is True:
+                status_val = "SUCCESS"
+        
+        print(f"DEBUG: Detected REF={ref}, STATUS={status_val}")
         
         if not ref:
             print("ERROR: Missing reference in webhook payload")
@@ -136,10 +150,11 @@ class TransactionViewSet(viewsets.ModelViewSet):
             trans = Transaction.objects.filter(transaction_ref=ref).first()
             
             if not trans:
-                print(f"ERROR: Transaction with ref {ref} not found")
-                return Response({"error": "Transaction non trouvée"}, status=404)
+                print(f"ERROR: Transaction with ref {ref} not found in DB")
+                # Essayer de chercher par ID si la ref est un ID numérique
+                return Response({"error": "Transaction non trouvée"}, status=200) # 200 pour que le processeur ne réessaie pas indéfiniment
 
-            if status_val in ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED"]:
+            if status_val in ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED", "APPROVED"]:
                 trans.status = "SUCCESS"
                 # Créer un enregistrement dans Paiement
                 Paiement.objects.get_or_create(
@@ -152,12 +167,12 @@ class TransactionViewSet(viewsets.ModelViewSet):
                         'payment_method': payload.get('payment_method', 'OpenPay')
                     }
                 )
-            elif status_val in ["FAILED", "EXPIRED", "CANCELLED", "ERROR"]:
+            elif status_val in ["FAILED", "EXPIRED", "CANCELLED", "ERROR", "DECLINED"]:
                 trans.status = "FAILED"
             
             trans.save()
-            print(f"INFO: Transaction {ref} updated to {trans.status}")
-            return Response({"status": "ok", "message": f"Transaction {ref} mise à jour : {trans.status}"})
+            print(f"SUCCESS: Transaction {ref} updated to {trans.status}")
+            return Response({"status": "ok"})
         except Exception as e:
             print(f"CRITICAL: Webhook error: {str(e)}")
             return Response({"error": str(e)}, status=500)
