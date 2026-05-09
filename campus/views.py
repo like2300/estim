@@ -20,10 +20,17 @@ class TransactionViewSet(viewsets.ModelViewSet):
     def create_pay_link(self, request):
         target_matricule = request.data.get('target_matricule')
         session_id = request.data.get('session_id')
-        payer_matricule = request.data.get('payer_matricule') or target_matricule
+        payer_matricule = request.data.get('payer_matricule')
         
-        if not target_matricule or not session_id:
-            return Response({"error": "Matricule cible et ID de session sont requis"}, status=400)
+        if not all([target_matricule, session_id, payer_matricule]):
+            return Response({"error": "Matricule cible, matricule payeur et ID de session sont requis"}, status=400)
+
+        # Bloquer si on essaie de payer pour son propre matricule (ça doit être gratuit)
+        if str(target_matricule) == str(payer_matricule):
+            return Response({
+                "error": "Vous ne pouvez pas payer pour votre propre matricule. Veuillez le configurer dans votre profil pour y accéder gratuitement.",
+                "is_self_payment": True
+            }, status=400)
 
         # Vérifier si l'étudiant cible existe réellement dans cette session
         if not Resultat.objects.filter(matricule=target_matricule, session_id=session_id).exists():
@@ -42,9 +49,14 @@ class TransactionViewSet(viewsets.ModelViewSet):
         
         # Récupérer le nom de l'étudiant payeur pour pré-remplir le lien OpenPay
         payer_name = "Étudiant"
-        etudiant = Resultat.objects.filter(matricule=payer_matricule).first()
-        if etudiant:
-            payer_name = etudiant.nom_etudiant
+        if str(payer_matricule).startswith("ANONYMOUS"):
+            # Extraire une partie de l'ID pour le nom (ex: ANONYMOUS_123456 -> Visiteur 123456)
+            suffix = str(payer_matricule).split('_')[-1]
+            payer_name = f"Visiteur {suffix}"
+        else:
+            etudiant = Resultat.objects.filter(matricule=payer_matricule).first()
+            if etudiant:
+                payer_name = etudiant.nom_etudiant
 
         # Payload selon la documentation OpenPay CG
         payload = {
@@ -228,9 +240,8 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
     def consulter(self, request):
         matricule = request.query_params.get('matricule')
         session_id = request.query_params.get('session')
-        # Si le matricule du payeur n'est pas fourni, on suppose que c'est l'étudiant lui-même
-        # ou quelqu'un qui a payé "anonymement" (auquel cas payer_matricule = target_matricule)
-        payer_matricule = request.query_params.get('payer_matricule') or matricule
+        payer_matricule = request.query_params.get('payer_matricule')
+        anonymous_id = request.query_params.get('anonymous_id')
 
         if not matricule or not session_id:
             return Response({"error": "Matricule et session sont requis"}, status=400)
@@ -246,34 +257,28 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"error": "Aucun résultat trouvé pour ce matricule dans cette session"}, status=404)
 
         # 3. Vérification si c'est son propre résultat ou si payé
-        # Si le matricule consulté est différent du matricule du payeur configuré dans l'app
-        # (Note: ici payer_matricule est déjà 'matricule' par défaut si absent du query_params)
+        # On considère comme payé si:
+        # a) matricule == payer_matricule (consultation propre)
+        # b) Un enregistrement Paiement existe pour (payer_matricule, target_matricule)
+        # c) Un enregistrement Paiement existe pour (anonymous_id, target_matricule)
         
-        # On ne demande un paiement que si le matricule consulté est différent de celui de l'utilisateur
-        # ET qu'aucun paiement n'a été trouvé.
-        # Si payer_matricule == matricule (cas par défaut), le filtre trouvera le paiement 'anonyme'
+        is_own_result = (payer_matricule == matricule)
         
-        # On récupère le vrai matricule de l'utilisateur (celui envoyé par l'app si existant)
-        user_app_matricule = request.query_params.get('payer_matricule')
+        # Filtre de base pour le paiement
+        from django.db.models import Q
         
-        if user_app_matricule and user_app_matricule != matricule:
-            # L'utilisateur est identifié et consulte quelqu'un d'autre
-            paid = Paiement.objects.filter(
-                payer_matricule=user_app_matricule, 
-                target_matricule=matricule, 
-                session_id=session_id
-            ).exists()
-        else:
-            # L'utilisateur n'est pas identifié OU il consulte son propre matricule
-            # On vérifie s'il a payé pour lui-même (payer=target)
-            paid = Paiement.objects.filter(
-                payer_matricule=matricule, 
-                target_matricule=matricule, 
-                session_id=session_id
-            ).exists()
+        payment_query = Q(target_matricule=matricule, session_id=session_id)
+        
+        # On construit les conditions de "qui a pu payer"
+        payer_conditions = Q(payer_matricule=matricule) # Toujours vérifier si le matricule cible a été payé pour lui-même
+        if payer_matricule:
+            payer_conditions |= Q(payer_matricule=payer_matricule)
+        if anonymous_id:
+            payer_conditions |= Q(payer_matricule=anonymous_id)
+            
+        paid = Paiement.objects.filter(payment_query & payer_conditions).exists()
 
-        # Si ce n'est pas son propre résultat (selon l'app) et qu'il n'a pas payé
-        if user_app_matricule != matricule and not paid:
+        if not is_own_result and not paid:
              return Response({
                 "requires_payment": True,
                 "amount": 100,
