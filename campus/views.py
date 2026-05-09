@@ -1,6 +1,7 @@
 import uuid
 import requests
 from django.conf import settings
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -12,35 +13,101 @@ from .serializers import (AnnonceSerializer, CoursSerializer, CampusAppSerialize
                                 ResultatSerializer, ExamenSerializer, SessionExamenSerializer, 
                                 TransactionSerializer, PaiementSerializer)
 
+def verify_openpay_status(trans):
+    """Fonction utilitaire pour vérifier et mettre à jour le statut d'une transaction"""
+    headers = {
+        "XO-API-KEY": settings.OPENPAY_API_KEY,
+        "Accept": "application/json"
+    }
+    try:
+        response = requests.get(
+            f"https://api.openpay-cg.com/v1/payment-link/{trans.transaction_ref}", 
+            headers=headers,
+            timeout=5
+        )
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            status_val = str(data.get("status", "")).upper()
+            
+            success_statuses = ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED", "APPROVED", "COMPLÉTÉ"]
+            fail_statuses = ["FAILED", "EXPIRED", "CANCELLED", "ERROR", "DECLINED", "ÉCHOUÉ"]
+            
+            if status_val in success_statuses:
+                trans.status = "SUCCESS"
+                trans.save()
+                Paiement.objects.get_or_create(
+                    reference=trans.transaction_ref,
+                    defaults={
+                        'payer_matricule': trans.payer_matricule,
+                        'target_matricule': trans.target_matricule,
+                        'session': trans.session,
+                        'amount': trans.amount,
+                        'payment_method': data.get('payment_method', 'OpenPay')
+                    }
+                )
+                return True
+            elif status_val in fail_statuses:
+                trans.status = "FAILED"
+                trans.save()
+        return False
+    except Exception as e:
+        print(f"ERROR in verify_openpay_status: {str(e)}")
+        return False
+
 class TransactionViewSet(viewsets.ModelViewSet):
     queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
+    lookup_field = 'transaction_ref'
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # Si la transaction est toujours en attente, on tente une vérification proactive
+        if instance.status == "PENDING":
+            print(f"DEBUG: Proactive check for transaction {instance.transaction_ref}")
+            verify_openpay_status(instance)
+            # Re-fetch from DB
+            instance.refresh_from_db()
+            
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['post'])
     def create_pay_link(self, request):
-        target_matricule = request.data.get('target_matricule')
+        target_matricule = str(request.data.get('target_matricule', '')).strip().upper()
         session_id = request.data.get('session_id')
-        payer_matricule = request.data.get('payer_matricule')
+        payer_matricule = str(request.data.get('payer_matricule', '')).strip().upper()
         
-        if not all([target_matricule, session_id, payer_matricule]):
+        if not target_matricule or not session_id or not payer_matricule:
             return Response({"error": "Matricule cible, matricule payeur et ID de session sont requis"}, status=400)
 
+        # Vérifier si la session existe et si les résultats sont disponibles
+        try:
+            session = SessionExamen.objects.get(id=session_id)
+            if not session.results_available:
+                return Response({
+                    "error": "Les résultats de cette session ne sont pas encore ouverts à la consultation.",
+                    "available": False
+                }, status=400)
+        except SessionExamen.DoesNotExist:
+            return Response({"error": "Session non trouvée"}, status=404)
+
         # Bloquer si on essaie de payer pour son propre matricule (ça doit être gratuit)
-        if str(target_matricule) == str(payer_matricule):
+        if target_matricule == payer_matricule:
             return Response({
                 "error": "Vous ne pouvez pas payer pour votre propre matricule. Veuillez le configurer dans votre profil pour y accéder gratuitement.",
                 "is_self_payment": True
             }, status=400)
 
         # Vérifier si l'étudiant cible existe réellement dans cette session
-        if not Resultat.objects.filter(matricule=target_matricule, session_id=session_id).exists():
+        if not Resultat.objects.filter(matricule=target_matricule, session=session).exists():
             return Response({"error": f"L'étudiant avec le matricule {target_matricule} n'existe pas dans cette session"}, status=404)
 
         # Vérifier si déjà payé
         if Paiement.objects.filter(
             payer_matricule=payer_matricule, 
             target_matricule=target_matricule, 
-            session_id=session_id
+            session=session
         ).exists():
             return Response({"message": "Déjà payé", "already_paid": True})
 
@@ -49,9 +116,9 @@ class TransactionViewSet(viewsets.ModelViewSet):
         
         # Récupérer le nom de l'étudiant payeur pour pré-remplir le lien OpenPay
         payer_name = "Étudiant"
-        if str(payer_matricule).startswith("ANONYMOUS"):
+        if payer_matricule.startswith("ANONYMOUS") or payer_matricule == "INVITE":
             # Extraire une partie de l'ID pour le nom (ex: ANONYMOUS_123456 -> Visiteur 123456)
-            suffix = str(payer_matricule).split('_')[-1]
+            suffix = payer_matricule.split('_')[-1] if '_' in payer_matricule else "Visiteur"
             payer_name = f"Visiteur {suffix}"
         else:
             etudiant = Resultat.objects.filter(matricule=payer_matricule).first()
@@ -104,7 +171,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 Transaction.objects.create(
                     payer_matricule=payer_matricule,
                     target_matricule=target_matricule,
-                    session_id=session_id,
+                    session=session,
                     amount=amount,
                     transaction_ref=openpay_ref,
                     status="PENDING"
@@ -119,6 +186,34 @@ class TransactionViewSet(viewsets.ModelViewSet):
             print(f"CRITICAL ERROR calling OpenPay: {str(e)}")
             return Response({"error": str(e)}, status=500)
 
+    @action(detail=False, methods=['get'], url_path='confirm/(?P<ref>[^/.]+)')
+    def confirm_payment(self, request, ref=None):
+        """
+        Action manuelle pour vérifier le statut d'une transaction auprès d'OpenPay
+        au cas où le webhook n'aurait pas encore été reçu.
+        """
+        if not ref:
+            return Response({"error": "Référence manquante"}, status=400)
+            
+        trans = Transaction.objects.filter(transaction_ref=ref).first()
+        if not trans:
+            return Response({"error": "Transaction non trouvée"}, status=404)
+            
+        if trans.status == "SUCCESS":
+            return Response({"status": "SUCCESS", "message": "Déjà confirmé"})
+            
+        success = verify_openpay_status(trans)
+        
+        if success:
+            return Response({"status": "SUCCESS", "message": "Paiement confirmé avec succès"})
+        
+        # Refresh to see if status changed to FAILED or stayed PENDING
+        trans.refresh_from_db()
+        if trans.status == "FAILED":
+            return Response({"status": "FAILED", "message": "Le paiement a échoué ou a été annulé"})
+            
+        return Response({"status": "PENDING", "message": "Le paiement est toujours en attente"})
+
     @action(detail=False, methods=['post'], url_path='webhook')
     def webhook(self, request):
         # Log the incoming payload for debugging
@@ -128,49 +223,54 @@ class TransactionViewSet(viewsets.ModelViewSet):
         
         # Certains processeurs enveloppent les données dans 'data'
         payload = request.data.get('data', request.data)
-        
-        # OpenPay uses 'payment_token' as primary reference based on our create_pay_link
         metadata = payload.get('metadata') or {}
         
-        # Liste des champs possibles pour la référence
+        # Liste exhaustive des champs possibles pour la référence
         possible_refs = [
             payload.get('payment_token'),
             payload.get('reference'),
             payload.get('transaction_ref'),
             metadata.get('transaction_ref'),
             payload.get('payment_id'),
-            request.data.get('payment_token') # Au cas où c'est à la racine
+            request.data.get('payment_token'),
+            request.data.get('reference')
         ]
         
-        ref = next((r for r in possible_refs if r), None)
+        # Filtrer les refs non nulles
+        valid_refs = [str(r) for r in possible_refs if r]
         
-        # Status detection
-        status_val = str(payload.get('status', '')).upper()
-        if not status_val:
-            # Essayer de voir si c'est un succès direct
-            if payload.get('success') is True:
-                status_val = "SUCCESS"
+        print(f"DEBUG: Potential references: {valid_refs}")
         
-        print(f"DEBUG: Detected REF={ref}, STATUS={status_val}")
-        
-        if not ref:
+        if not valid_refs:
             print("ERROR: Missing reference in webhook payload")
             return Response({"error": "Référence manquante"}, status=400)
         
+        # Status detection
+        # On regarde dans status, mais aussi payment_status qui est courant
+        status_val = str(payload.get('status') or payload.get('payment_status') or '').upper()
+        if not status_val:
+            # Essayer de voir si c'est un succès direct via un booléen
+            if payload.get('success') is True or payload.get('paid') is True:
+                status_val = "SUCCESS"
+        
+        print(f"DEBUG: Detected STATUS={status_val}")
+        
         try:
-            # Try to find transaction by reference
-            trans = Transaction.objects.filter(transaction_ref=ref).first()
+            # Try to find transaction using ANY of the references found
+            trans = Transaction.objects.filter(transaction_ref__in=valid_refs).first()
             
             if not trans:
-                print(f"ERROR: Transaction with ref {ref} not found in DB")
-                # Essayer de chercher par ID si la ref est un ID numérique
-                return Response({"error": "Transaction non trouvée"}, status=200) # 200 pour que le processeur ne réessaie pas indéfiniment
+                print(f"ERROR: No transaction found for any of the refs: {valid_refs}")
+                return Response({"error": "Transaction non trouvée"}, status=200)
 
-            if status_val in ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED", "APPROVED"]:
+            success_statuses = ["SUCCESS", "SUCCESSFUL", "PAID", "COMPLETED", "APPROVED", "COMPLÉTÉ"]
+            fail_statuses = ["FAILED", "EXPIRED", "CANCELLED", "ERROR", "DECLINED", "ÉCHOUÉ"]
+
+            if status_val in success_statuses:
                 trans.status = "SUCCESS"
                 # Créer un enregistrement dans Paiement
                 Paiement.objects.get_or_create(
-                    reference=ref,
+                    reference=trans.transaction_ref,
                     defaults={
                         'payer_matricule': trans.payer_matricule,
                         'target_matricule': trans.target_matricule,
@@ -179,11 +279,12 @@ class TransactionViewSet(viewsets.ModelViewSet):
                         'payment_method': payload.get('payment_method', 'OpenPay')
                     }
                 )
-            elif status_val in ["FAILED", "EXPIRED", "CANCELLED", "ERROR", "DECLINED"]:
+                print(f"SUCCESS: Paiement recorded for {trans.target_matricule}")
+            elif status_val in fail_statuses:
                 trans.status = "FAILED"
             
             trans.save()
-            print(f"SUCCESS: Transaction {ref} updated to {trans.status}")
+            print(f"SUCCESS: Transaction updated to {trans.status}")
             return Response({"status": "ok"})
         except Exception as e:
             print(f"CRITICAL: Webhook error: {str(e)}")
@@ -201,8 +302,8 @@ class PaiementViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = Paiement.objects.all()
         payer = self.request.query_params.get('payer_matricule')
         if payer:
-            queryset = queryset.filter(payer_matricule=payer)
-        return queryset
+            queryset = queryset.filter(payer_matricule=str(payer).strip().upper())
+        return queryset.order_by('-created_at')
 
 class AnnonceViewSet(viewsets.ModelViewSet):
     queryset = Annonce.objects.all().order_by('-date')
@@ -230,7 +331,7 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
         session_id = self.request.query_params.get('session')
 
         if matricule:
-            queryset = queryset.filter(matricule=matricule)
+            queryset = queryset.filter(matricule=str(matricule).strip().upper())
         if session_id:
             queryset = queryset.filter(session_id=session_id)
             
@@ -238,10 +339,10 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def consulter(self, request):
-        matricule = request.query_params.get('matricule')
+        matricule = str(request.query_params.get('matricule', '')).strip().upper()
         session_id = request.query_params.get('session')
-        payer_matricule = request.query_params.get('payer_matricule')
-        anonymous_id = request.query_params.get('anonymous_id')
+        payer_matricule = str(request.query_params.get('payer_matricule', '')).strip().upper()
+        anonymous_id = str(request.query_params.get('anonymous_id', '')).strip().upper()
 
         if not matricule or not session_id:
             return Response({"error": "Matricule et session sont requis"}, status=400)
@@ -254,7 +355,7 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
 
         # 2. Vérifier si les résultats existent pour ce matricule dans cette session
         if not Resultat.objects.filter(matricule=matricule, session=session).exists():
-            return Response({"error": "Aucun résultat trouvé pour ce matricule dans cette session"}, status=404)
+            return Response({"error": f"Aucun résultat trouvé pour le matricule {matricule} dans cette session"}, status=404)
 
         # 3. Vérification si c'est son propre résultat ou si payé
         # On considère comme payé si:
@@ -265,18 +366,32 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
         is_own_result = (payer_matricule == matricule)
         
         # Filtre de base pour le paiement
-        from django.db.models import Q
-        
-        payment_query = Q(target_matricule=matricule, session_id=session_id)
+        payment_query = Q(target_matricule=matricule, session=session)
         
         # On construit les conditions de "qui a pu payer"
-        payer_conditions = Q(payer_matricule=matricule) # Toujours vérifier si le matricule cible a été payé pour lui-même
-        if payer_matricule:
+        # On inclut toujours le matricule cible au cas où il aurait payé pour lui-même (même si bloqué par l'UI)
+        payer_conditions = Q(payer_matricule=matricule) 
+        
+        if payer_matricule and payer_matricule != "NONE" and payer_matricule != "NULL":
             payer_conditions |= Q(payer_matricule=payer_matricule)
-        if anonymous_id:
+        if anonymous_id and anonymous_id != "NONE" and anonymous_id != "NULL":
             payer_conditions |= Q(payer_matricule=anonymous_id)
             
         paid = Paiement.objects.filter(payment_query & payer_conditions).exists()
+
+        # Si pas encore marqué comme payé, on vérifie si une transaction PENDING existe et on tente de la confirmer
+        if not is_own_result and not paid:
+            pending_trans = Transaction.objects.filter(
+                target_matricule=matricule,
+                session=session,
+                status="PENDING"
+            ).filter(payer_conditions).first()
+            
+            if pending_trans:
+                print(f"DEBUG: Found PENDING transaction during consultation for {matricule}. Verifying...")
+                if verify_openpay_status(pending_trans):
+                    paid = True
+                    print(f"DEBUG: Proactive verification successful for {matricule}")
 
         if not is_own_result and not paid:
              return Response({
