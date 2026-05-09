@@ -51,7 +51,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Plus restrictif en production
+CORS_ALLOW_ALL_ORIGINS = True  # Autorise l'accès depuis l'application mobile et le web
 
 ROOT_URLCONF = "estim_campus_api.urls"
 
