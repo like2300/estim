@@ -78,30 +78,44 @@ class TransactionViewSet(viewsets.ModelViewSet):
         session_id = request.data.get('session_id')
         payer_matricule = str(request.data.get('payer_matricule', '')).strip().upper()
         
-        if not target_matricule or not session_id or not payer_matricule:
-            return Response({"error": "Matricule cible, matricule payeur et ID de session sont requis"}, status=400)
+        if not target_matricule or not payer_matricule:
+            return Response({"error": "Matricule cible et matricule payeur sont requis"}, status=400)
 
-        # Vérifier si la session existe et si les résultats sont disponibles
-        try:
-            session = SessionExamen.objects.get(id=session_id)
-            if not session.results_available:
-                return Response({
-                    "error": "Les résultats de cette session ne sont pas encore ouverts à la consultation.",
-                    "available": False
-                }, status=400)
-        except SessionExamen.DoesNotExist:
-            return Response({"error": "Session non trouvée"}, status=404)
+        is_inscription = target_matricule.startswith("INS-") or session_id == "INSCRIPTION"
+        
+        session = None
+        if not is_inscription:
+            if not session_id:
+                return Response({"error": "ID de session est requis pour les résultats"}, status=400)
+            # Vérifier si la session existe et si les résultats sont disponibles
+            try:
+                session = SessionExamen.objects.get(id=session_id)
+                if not session.results_available:
+                    return Response({
+                        "error": "Les résultats de cette session ne sont pas encore ouverts à la consultation.",
+                        "available": False
+                    }, status=400)
+            except SessionExamen.DoesNotExist:
+                return Response({"error": "Session non trouvée"}, status=404)
+        else:
+            # Pour l'inscription, on vérifie si elle existe
+            from inscription.models import Inscription
+            try:
+                # Extraire l'ID numérique
+                ins_id = target_matricule.replace("INS-", "")
+                if not Inscription.objects.filter(id=ins_id).exists():
+                    return Response({"error": f"L'inscription {target_matricule} n'existe pas"}, status=404)
+            except:
+                return Response({"error": "ID d'inscription invalide"}, status=400)
 
-        # Bloquer si on essaie de payer pour son propre matricule (ça doit être gratuit)
+        # Bloquer si on essaie de payer pour son propre matricule/inscription (ça doit être gratuit)
+        # Pour l'inscription, on considère que c'est propre si le payer_matricule correspond au téléphone de l'inscrit?
+        # Ou on laisse gratuit pour l'inscrit lui-même via une autre logique.
         if target_matricule == payer_matricule:
             return Response({
-                "error": "Vous ne pouvez pas payer pour votre propre matricule. Veuillez le configurer dans votre profil pour y accéder gratuitement.",
+                "error": "Vous ne pouvez pas payer pour vous-même.",
                 "is_self_payment": True
             }, status=400)
-
-        # Vérifier si l'étudiant cible existe réellement dans cette session
-        if not Resultat.objects.filter(matricule=target_matricule, session=session).exists():
-            return Response({"error": f"L'étudiant avec le matricule {target_matricule} n'existe pas dans cette session"}, status=404)
 
         # Vérifier si déjà payé
         if Paiement.objects.filter(
@@ -112,23 +126,30 @@ class TransactionViewSet(viewsets.ModelViewSet):
             return Response({"message": "Déjà payé", "already_paid": True})
 
         transaction_ref = str(uuid.uuid4())
-        amount = 100 # XAF
+        amount = 500 if is_inscription else 100 # 500 pour inscription, 100 pour résultat
+        description = f"Vérification inscription {target_matricule}" if is_inscription else f"Consultation résultat {target_matricule}"
         
-        # Récupérer le nom de l'étudiant payeur pour pré-remplir le lien OpenPay
+        # Récupérer le nom de l'étudiant payeur
         payer_name = "Étudiant"
         if payer_matricule.startswith("ANONYMOUS") or payer_matricule == "INVITE":
-            # Extraire une partie de l'ID pour le nom (ex: ANONYMOUS_123456 -> Visiteur 123456)
             suffix = payer_matricule.split('_')[-1] if '_' in payer_matricule else "Visiteur"
             payer_name = f"Visiteur {suffix}"
         else:
+            # Chercher dans les résultats ou les inscriptions
             etudiant = Resultat.objects.filter(matricule=payer_matricule).first()
             if etudiant:
                 payer_name = etudiant.nom_etudiant
+            else:
+                from inscription.models import Inscription
+                # Essayer de voir si le payer est un ancien inscrit (par téléphone)
+                inscrit = Inscription.objects.filter(phone__icontains=payer_matricule).first()
+                if inscrit:
+                    payer_name = f"{inscrit.first_name} {inscrit.last_name}"
 
         # Payload selon la documentation OpenPay CG
         payload = {
             "amount": amount,
-            "description": f"Consultation résultat {target_matricule}",
+            "description": description,
             "success_url": "https://estim-campus.com/payment-success",
             "customer": {
                 "name": payer_name
@@ -137,7 +158,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 "transaction_ref": transaction_ref,
                 "payer": payer_matricule,
                 "target": target_matricule,
-                "session": session_id
+                "session": session_id if session else "INSCRIPTION"
             }
         }
         

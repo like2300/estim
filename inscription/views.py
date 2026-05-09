@@ -16,6 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from django.db.models import Q
 from .models import FormConfig, Inscription
 from .serializers import InscriptionSerializer
 
@@ -40,6 +41,61 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         config = FormConfig.objects.filter(is_active=True).first()
         annee = config.annee_academique if config else "2025-2026"
         serializer.save(annee_academique=annee)
+
+    @action(detail=False, methods=['get'])
+    def consulter(self, request):
+        pk = request.query_params.get('pk')
+        payer_matricule = str(request.query_params.get('payer_matricule', '')).strip().upper()
+        anonymous_id = str(request.query_params.get('anonymous_id', '')).strip().upper()
+
+        if not pk:
+            return Response({"error": "ID d'inscription est requis"}, status=400)
+
+        # 1. Vérifier si l'inscription existe
+        inscription = get_object_or_404(Inscription, pk=pk)
+
+        # 2. Vérification du paiement
+        target_ref = f"INS-{pk}"
+        # On considère comme propre si le payer_matricule correspond au téléphone
+        clean_phone = str(inscription.phone).replace("+", "").replace(" ", "")
+        clean_payer = payer_matricule.replace("+", "").replace(" ", "")
+        
+        is_owner = (clean_payer == clean_phone or clean_payer in clean_phone)
+        
+        # Filtre de base pour le paiement
+        from campus.models import Paiement, Transaction
+        from campus.views import verify_openpay_status
+
+        payer_conditions = Q(payer_matricule=payer_matricule)
+        if anonymous_id and anonymous_id != "NONE" and anonymous_id != "NULL":
+            payer_conditions |= Q(payer_matricule=anonymous_id)
+        
+        paid = Paiement.objects.filter(target_matricule=target_ref).filter(payer_conditions).exists()
+
+        if not is_owner and not paid:
+            # Vérifier transaction PENDING
+            pending_trans = Transaction.objects.filter(
+                target_matricule=target_ref,
+                status="PENDING"
+            ).filter(payer_conditions).first()
+            
+            if pending_trans:
+                if verify_openpay_status(pending_trans):
+                    paid = True
+
+        if not is_owner and not paid:
+             return Response({
+                "requires_payment": True,
+                "amount": 500,
+                "message": "La vérification d'une inscription nécessite un paiement de 500 XAF."
+            }, status=200)
+
+        # 3. Renvoyer les données
+        serializer = self.get_serializer(inscription)
+        return Response({
+            "available": True,
+            "data": serializer.data
+        })
 
     @action(detail=True, methods=["get"])
     def download_pdf(self, request, pk=None):

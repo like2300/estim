@@ -180,7 +180,7 @@ class Transaction(models.Model):
 class Paiement(models.Model):
     payer_matricule = models.CharField(max_length=50, verbose_name="Matricule Payeur")
     target_matricule = models.CharField(max_length=50, verbose_name="Matricule Cible")
-    session = models.ForeignKey(SessionExamen, on_delete=models.CASCADE, verbose_name="Session")
+    session = models.ForeignKey(SessionExamen, on_delete=models.CASCADE, verbose_name="Session", null=True, blank=True)
     reference = models.CharField(max_length=100, unique=True, verbose_name="Référence Paiement")
     amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Montant")
     payment_method = models.CharField(max_length=50, null=True, blank=True, verbose_name="Méthode de Paiement")

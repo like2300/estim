@@ -6,7 +6,7 @@ from .models import Inscription, FormConfig
 
 @admin.register(Inscription)
 class InscriptionAdmin(ModelAdmin):
-    list_display = ('last_name', 'first_name', 'target_etablissement', 'annee_academique', 'email', 'phone', 'created_at')
+    list_display = ('id', 'last_name', 'first_name', 'target_etablissement', 'annee_academique', 'email', 'phone', 'created_at')
     search_fields = ('last_name', 'first_name', 'email', 'phone', 'target_etablissement', 'annee_academique')
     list_filter = ('target_etablissement', 'annee_academique', 'sexe', 'choix_cycle', 'choix_filiere', 'created_at')
     list_filter_sheet = True  # Filtres dans un panneau latéral propre (Unfold)
