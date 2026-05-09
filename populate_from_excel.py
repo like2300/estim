@@ -79,13 +79,17 @@ def populate():
     )
 
     matricules = ["ESTIM001", "ESTIM002", "ESTIM003", "ESTIM004", "ESTIM005"]
-    for mat in matricules:
+    for i, mat in enumerate(matricules):
         moyenne = round(random.uniform(9.0, 18.0), 2)
+        nom = "indisponible"
+        if i == 0: # Pour le premier, on met un nom qui existe dans les inscriptions
+            nom = "ELENGA OMER FILS"
+            
         Resultat.objects.get_or_create(
             matricule=mat,
             session=session,
             defaults={
-                'nom_etudiant': "indisponible", # Requested by user
+                'nom_etudiant': nom,
                 'moyenne': moyenne,
                 'admis': moyenne >= 10,
                 'details_notes': {
@@ -95,7 +99,7 @@ def populate():
                 }
             }
         )
-    print(f"Succès: {len(matricules)} résultats ajoutés avec le nom 'indisponible'.")
+    print(f"Succès: {len(matricules)} résultats ajoutés (dont 1 avec photo liée).")
 
 if __name__ == "__main__":
     populate()

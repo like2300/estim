@@ -415,18 +415,23 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
             # Tentative de récupération d'une photo depuis les inscriptions
             photo_url = None
             from inscription.models import Inscription
-            # On cherche une inscription dont le nom complet correspond au nom du résultat
-            # On ignore la casse et les espaces superflus
             nom_res = str(resultat.nom_etudiant).strip().upper()
             
-            # Recherche par nom complet
-            insc = Inscription.objects.filter(photo__isnull=False).filter(
-                Q(last_name__icontains=nom_res) | 
-                Q(first_name__icontains=nom_res)
-            ).first()
-            
-            if insc and insc.photo:
-                photo_url = request.build_absolute_uri(insc.photo.url)
+            if nom_res and nom_res != "INDISPONIBLE":
+                # On cherche une inscription dont le nom complet (Nom + Prénom) correspond
+                # On utilise __icontains pour plus de souplesse
+                insc = Inscription.objects.filter(photo__isnull=False).filter(
+                    Q(last_name__icontains=nom_res) | 
+                    Q(first_name__icontains=nom_res) |
+                    Q(last_name__in=nom_res.split()) |
+                    Q(first_name__in=nom_res.split())
+                ).first()
+                
+                if insc and insc.photo:
+                    photo_url = request.build_absolute_uri(insc.photo.url)
+                    # S'assurer que l'URL utilise HTTPS si le serveur est derrière un proxy SSL
+                    if not settings.DEBUG and photo_url.startswith('http://'):
+                        photo_url = photo_url.replace('http://', 'https://')
 
             return Response({
                 "available": True,

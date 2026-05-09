@@ -35,9 +35,12 @@ class AnnonceSerializer(serializers.ModelSerializer):
             return image_url
             
         if request:
-            return request.build_absolute_uri(image_url)
+            url = request.build_absolute_uri(image_url)
+            if not settings.DEBUG and url.startswith('http://'):
+                url = url.replace('http://', 'https://')
+            return url
             
-        return image_url # Fallback to relative if no request context
+        return image_url
 
 class CoursSerializer(serializers.ModelSerializer):
     etablissement = serializers.StringRelatedField()
@@ -85,10 +88,16 @@ class HeroImageSerializer(serializers.ModelSerializer):
         fields = '__all__'
     def get_image_display(self, obj):
         image_url = obj.get_image_url
-        if not image_url: return None
+        if not image_url:
+            return None
         request = self.context.get('request')
-        if image_url.startswith('http'): return image_url
-        if request: return request.build_absolute_uri(image_url)
+        if image_url.startswith('http'):
+            return image_url
+        if request:
+            url = request.build_absolute_uri(image_url)
+            if not settings.DEBUG and url.startswith('http://'):
+                url = url.replace('http://', 'https://')
+            return url
         return image_url
 
 class NotificationSerializer(serializers.ModelSerializer):
