@@ -362,10 +362,11 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         # ════════════════════════════════════════════════════════
         # ÉTABLISSEMENT + PHOTO encadrée
         # ════════════════════════════════════════════════════════
-        etab_para = Paragraph(
-            f"<b>Établissement :</b> {inscription.target_etablissement or '—'}",
-            s_etab,
-        )
+        etab_para = [
+            Paragraph(f"<b>Établissement :</b> {inscription.target_etablissement or '—'}", s_etab),
+            Spacer(1, 4),
+            Paragraph(f"<b>ID ÉTUDIANT :</b> {inscription.pk}", s_etab),
+        ]
 
         photo_cell = None
         has_photo = False

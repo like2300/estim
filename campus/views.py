@@ -411,9 +411,27 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             resultat = Resultat.objects.get(matricule=matricule, session=session)
             serializer = self.get_serializer(resultat)
+            
+            # Tentative de récupération d'une photo depuis les inscriptions
+            photo_url = None
+            from inscription.models import Inscription
+            # On cherche une inscription dont le nom complet correspond au nom du résultat
+            # On ignore la casse et les espaces superflus
+            nom_res = str(resultat.nom_etudiant).strip().upper()
+            
+            # Recherche par nom complet
+            insc = Inscription.objects.filter(photo__isnull=False).filter(
+                Q(last_name__icontains=nom_res) | 
+                Q(first_name__icontains=nom_res)
+            ).first()
+            
+            if insc and insc.photo:
+                photo_url = request.build_absolute_uri(insc.photo.url)
+
             return Response({
                 "available": True,
-                "data": serializer.data
+                "data": serializer.data,
+                "photo_url": photo_url
             })
         except Resultat.DoesNotExist:
             return Response({"error": "Résultat non trouvé"}, status=404)
