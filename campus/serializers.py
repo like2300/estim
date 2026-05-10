@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import serializers
 from .models import (Annonce, Cours, CampusApp, Notification, Etablissement, 
                      Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, 
@@ -30,17 +31,19 @@ class AnnonceSerializer(serializers.ModelSerializer):
         if not image_url:
             return None
             
-        request = self.context.get('request')
         if image_url.startswith('http'):
-            return image_url
+            return image_url.replace('http://', 'https://') if 'alwaysdata.net' in image_url else image_url
             
+        request = self.context.get('request')
         if request:
             url = request.build_absolute_uri(image_url)
-            if not settings.DEBUG and url.startswith('http://'):
+            # Forcer HTTPS pour AlwaysData
+            if 'alwaysdata.net' in url:
                 url = url.replace('http://', 'https://')
             return url
             
-        return image_url
+        # Fallback si pas de request
+        return f"https://estim-campus.alwaysdata.net{image_url}"
 
 class CoursSerializer(serializers.ModelSerializer):
     etablissement = serializers.StringRelatedField()
@@ -90,15 +93,18 @@ class HeroImageSerializer(serializers.ModelSerializer):
         image_url = obj.get_image_url
         if not image_url:
             return None
-        request = self.context.get('request')
+            
         if image_url.startswith('http'):
-            return image_url
+            return image_url.replace('http://', 'https://') if 'alwaysdata.net' in image_url else image_url
+            
+        request = self.context.get('request')
         if request:
             url = request.build_absolute_uri(image_url)
-            if not settings.DEBUG and url.startswith('http://'):
+            if 'alwaysdata.net' in url:
                 url = url.replace('http://', 'https://')
             return url
-        return image_url
+            
+        return f"https://estim-campus.alwaysdata.net{image_url}"
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
