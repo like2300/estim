@@ -307,17 +307,28 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         elements = []
 
         # ════════════════════════════════════════════════════════
-        # HEADER — Logo à gauche, texte à droite (sans encadrement)
+        # ── HEADER — Logo à gauche, texte à droite (sans encadrement)
         # ════════════════════════════════════════════════════════
         logo_path = os.path.join(settings.BASE_DIR, "static", "imgs", "logo.png")
         logo_size = 65
         logo_cell = None
 
-        if os.path.exists(logo_path):
-            logo_raw = RLImage(logo_path, width=logo_size, height=logo_size)
-            logo_raw.hAlign = "LEFT"
-            logo_cell = logo_raw
-        else:
+        try:
+            if os.path.exists(logo_path):
+                logo_raw = RLImage(logo_path, width=logo_size, height=logo_size)
+                logo_raw.hAlign = "LEFT"
+                logo_cell = logo_raw
+            else:
+                # Fallback sur un autre chemin possible
+                alt_logo = os.path.join(settings.BASE_DIR, "staticfiles", "imgs", "logo.png")
+                if os.path.exists(alt_logo):
+                    logo_raw = RLImage(alt_logo, width=logo_size, height=logo_size)
+                    logo_raw.hAlign = "LEFT"
+                    logo_cell = logo_raw
+        except Exception as e:
+            print(f"Error loading logo: {e}")
+
+        if not logo_cell:
             ph = Paragraph(
                 "LOGO",
                 ParagraphStyle(
@@ -428,14 +439,21 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         has_photo = False
         if inscription.photo:
             try:
-                photo_path = inscription.photo.path
-                if os.path.exists(photo_path):
-                    p_img = RLImage(photo_path, width=78, height=102)
+                # Tentative via le chemin direct
+                if os.path.exists(inscription.photo.path):
+                    p_img = RLImage(inscription.photo.path, width=78, height=102)
                     p_img.hAlign = "CENTER"
                     photo_cell = p_img
                     has_photo = True
-            except Exception:
-                pass
+                else:
+                    # Tentative en ouvrant le fichier directement (utile si le path est relatif ou mal configuré)
+                    inscription.photo.open()
+                    p_img = RLImage(inscription.photo, width=78, height=102)
+                    p_img.hAlign = "CENTER"
+                    photo_cell = p_img
+                    has_photo = True
+            except Exception as e:
+                print(f"Error loading student photo: {e}")
 
         if not has_photo:
             ph_txt = Paragraph(
