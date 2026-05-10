@@ -12,15 +12,16 @@ class InscriptionSerializer(serializers.ModelSerializer):
     def get_photo(self, obj):
         if not obj.photo:
             return None
-        
-        request = self.context.get('request')
+            
         photo_url = obj.photo.url
-        
+        if photo_url.startswith('http'):
+            return photo_url.replace('http://', 'https://') if 'alwaysdata.net' in photo_url else photo_url
+            
+        request = self.context.get('request')
         if request:
             full_url = request.build_absolute_uri(photo_url)
-            # Force HTTPS in production if behind a proxy
-            if not settings.DEBUG and full_url.startswith('http://'):
+            if 'alwaysdata.net' in full_url:
                 full_url = full_url.replace('http://', 'https://')
             return full_url
             
-        return photo_url
+        return f"https://estim-campus.alwaysdata.net{photo_url}"

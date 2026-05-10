@@ -1082,8 +1082,12 @@
                 };
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
+                video.setAttribute("playsinline", true);
                 video.onloadedmetadata = () => {
-                    video.play().catch(e => console.error("Video play failed:", e));
+                    video.play().catch(e => {
+                        console.error("Video play failed:", e);
+                        startOverlay.style.display = 'flex';
+                    });
                     startOverlay.style.display = 'none';
                 };
             } catch (err) {
