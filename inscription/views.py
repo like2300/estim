@@ -439,21 +439,26 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         has_photo = False
         if inscription.photo:
             try:
-                # Tentative via le chemin direct
-                if os.path.exists(inscription.photo.path):
-                    p_img = RLImage(inscription.photo.path, width=78, height=102)
-                    p_img.hAlign = "CENTER"
-                    photo_cell = p_img
-                    has_photo = True
-                else:
-                    # Tentative en ouvrant le fichier directement (utile si le path est relatif ou mal configuré)
-                    inscription.photo.open()
-                    p_img = RLImage(inscription.photo, width=78, height=102)
-                    p_img.hAlign = "CENTER"
-                    photo_cell = p_img
-                    has_photo = True
+                # Méthode la plus robuste : lire en mémoire via BytesIO
+                from io import BytesIO
+                inscription.photo.open('rb')
+                img_data = BytesIO(inscription.photo.read())
+                p_img = RLImage(img_data, width=78, height=102)
+                p_img.hAlign = "CENTER"
+                photo_cell = p_img
+                has_photo = True
+                inscription.photo.close()
             except Exception as e:
-                print(f"Error loading student photo: {e}")
+                print(f"Error loading student photo (BytesIO): {e}")
+                # Fallback via le chemin direct au cas où
+                try:
+                    if os.path.exists(inscription.photo.path):
+                        p_img = RLImage(inscription.photo.path, width=78, height=102)
+                        p_img.hAlign = "CENTER"
+                        photo_cell = p_img
+                        has_photo = True
+                except:
+                    pass
 
         if not has_photo:
             ph_txt = Paragraph(

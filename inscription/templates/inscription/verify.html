@@ -137,7 +137,9 @@
         <div class="content">
             <div class="photo-container">
                 {% if inscription.photo %}
-                    <img src="{{ inscription.photo.url }}" alt="Photo étudiant" class="student-photo">
+                    <img src="{{ inscription.photo.url }}" 
+                         onerror="this.src='https://api.dicebear.com/7.x/initials/svg?seed={{ inscription.last_name }}&backgroundColor=FFD600'" 
+                         alt="Photo étudiant" class="student-photo">
                 {% else %}
                     <div class="student-photo" style="display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #aaa;">👤</div>
                 {% endif %}
