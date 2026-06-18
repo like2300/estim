@@ -8,6 +8,8 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+CSRF_TRUSTED_ORIGINS = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-default-key-change-me")
 
 OPENPAY_API_KEY = os.getenv("OPENPAY_API_KEY", "")
