@@ -7,6 +7,8 @@ from django.dispatch import receiver
 
 class Etablissement(models.Model):
     nom = models.CharField(max_length=200, unique=True)
+    adresse = models.TextField(null=True, blank=True, verbose_name="Adresse de l'établissement")
+    agrement = models.CharField(max_length=255, null=True, blank=True, verbose_name="Agrément de l'établissement")
 
     def __str__(self):
         return self.nom
@@ -125,6 +127,9 @@ class Notification(models.Model):
     related_id = models.IntegerField(
         null=True, blank=True
     )  # ID de l'annonce ou du cours
+    target_matricule = models.CharField(
+        max_length=50, null=True, blank=True, verbose_name="Matricule cible"
+    )
 
     def __str__(self):
         return self.title
@@ -215,6 +220,37 @@ class Examen(models.Model):
         return f"{self.type} - {self.matiere} ({self.date})"
 
 
+class CalendrierAcademique(models.Model):
+    title = models.CharField(max_length=200, verbose_name="Titre de l'événement")
+    description = models.TextField(verbose_name="Description", blank=True)
+    date_debut = models.DateField(verbose_name="Date de début")
+    date_fin = models.DateField(verbose_name="Date de fin", null=True, blank=True)
+    is_important = models.BooleanField(default=False, verbose_name="Important")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Calendrier Académique"
+        verbose_name_plural = "Calendrier Académique"
+        ordering = ['date_debut']
+
+    def __str__(self):
+        return f"{self.title} ({self.date_debut})"
+
+
+class SiteWeb(models.Model):
+    title = models.CharField(max_length=100, verbose_name="Nom du site")
+    url = models.URLField(max_length=500, verbose_name="URL du site")
+    icon_name = models.CharField(max_length=50, default="public", verbose_name="Nom de l'icône Material")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Lien Site Web"
+        verbose_name_plural = "Liens Sites Web"
+
+    def __str__(self):
+        return self.title
+
+
 @receiver(post_save, sender=Annonce)
 def create_notification_on_annonce(sender, instance, created, **kwargs):
     if created:
@@ -245,5 +281,28 @@ def create_notification_on_examen(sender, instance, created, **kwargs):
             title=f"📝 Nouvel examen : {instance.matiere}",
             message=f"Un(e) {instance.type} de {instance.matiere} est prévu le {instance.date} à {instance.heure}.",
             notification_type="examen",
+            related_id=instance.id,
+        )
+
+
+@receiver(post_save, sender=Resultat)
+def create_notification_on_resultat(sender, instance, created, **kwargs):
+    if created:
+        Notification.objects.create(
+            title=f"🎓 Nouveau résultat disponible",
+            message=f"Félicitations {instance.nom_etudiant}, votre résultat pour la session {instance.session.nom} est disponible !",
+            notification_type="resultat",
+            related_id=instance.id,
+            target_matricule=instance.matricule,
+        )
+
+
+@receiver(post_save, sender=CalendrierAcademique)
+def create_notification_on_calendrier(sender, instance, created, **kwargs):
+    if created:
+        Notification.objects.create(
+            title=f"📅 Calendrier : {instance.title}",
+            message=f"Un nouvel événement a été ajouté : {instance.title} le {instance.date_debut}.",
+            notification_type="calendrier",
             related_id=instance.id,
         )

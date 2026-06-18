@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESTIM Dashboard - Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .drag-over { border-color: #10b981; background-color: #ecfdf5; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-slate-900 text-white flex-shrink-0 hidden md:flex flex-col">
+        <div class="p-6 border-b border-slate-800">
+            <h1 class="text-xl font-bold tracking-wider">ESTIM <span class="text-emerald-400">ADMIN</span></h1>
+        </div>
+        <nav class="flex-1 p-4 space-y-2">
+            <a href="/api/dashboard/" class="flex items-center space-x-3 p-3 bg-slate-800 rounded-lg text-emerald-400">
+                <i class="fas fa-chart-line"></i>
+                <span>Tableau de bord</span>
+            </a>
+            <a href="/api/dashboard/sessions/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-calendar-alt"></i>
+                <span>Sessions</span>
+            </a>
+            <a href="/api/dashboard/results/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-graduation-cap"></i>
+                <span>Résultats</span>
+            </a>
+            <a href="/api/dashboard/announcements/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-bullhorn"></i>
+                <span>Annonces</span>
+            </a>
+            <a href="/api/dashboard/schedule/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-book-open"></i>
+                <span>Emploi du temps</span>
+            </a>
+            <a href="/api/dashboard/inscriptions/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-user-plus"></i>
+                <span>Inscriptions</span>
+            </a>
+            <a href="/admin/logout/" class="flex items-center space-x-3 p-3 hover:bg-red-900/20 text-red-400 rounded-lg transition mt-8">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Déconnexion</span>
+            </a>
+        </nav>
+        <div class="p-6 border-t border-slate-800 text-slate-500 text-xs">
+            © 2026 ESTIM Campus
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-screen overflow-hidden">
+        <!-- Header -->
+        <header class="h-16 bg-white border-b flex items-center justify-between px-8">
+            <div class="text-slate-500 text-sm">Administration > <span class="text-slate-800 font-medium">Importation</span></div>
+            <div class="flex items-center space-x-4">
+                <span class="text-sm font-medium text-slate-700">Admin Estim</span>
+                <div class="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-white">
+                    <i class="fas fa-user"></i>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page Content -->
+        <div class="flex-1 overflow-y-auto p-8">
+            <!-- Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center text-xl">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div>
+                        <p class="text-slate-500 text-sm">Total Étudiants</p>
+                        <h3 class="text-2xl font-bold">{{ total_students }}</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center text-xl">
+                        <i class="fas fa-file-invoice"></i>
+                    </div>
+                    <div>
+                        <p class="text-slate-500 text-sm">Sessions Actives</p>
+                        <h3 class="text-2xl font-bold">{{ total_sessions }}</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center space-x-4">
+                    <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <div>
+                        <p class="text-slate-500 text-sm">Importations réussies</p>
+                        <h3 class="text-2xl font-bold">100%</h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import Section -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div class="p-6 border-b border-slate-50">
+                    <h2 class="text-lg font-bold text-slate-800">Importation des Résultats (Excel)</h2>
+                    <p class="text-slate-500 text-sm">Glissez-déposez votre fichier Excel pour mettre à jour les résultats.</p>
+                </div>
+                
+                <div class="p-8">
+                    <div class="max-w-xl mx-auto space-y-6">
+                        <!-- Download Template -->
+                        <div class="flex justify-end">
+                            <a href="/api/dashboard/template/" class="text-xs text-emerald-600 hover:text-emerald-700 font-bold flex items-center space-x-1">
+                                <i class="fas fa-download"></i>
+                                <span>Télécharger le modèle Excel</span>
+                            </a>
+                        </div>
+                        
+                        <!-- Session Select -->
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Choisir la Session</label>
+                            <select id="session-select" class="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition">
+                                <option value="">Sélectionner une session...</option>
+                                {% for session in sessions %}
+                                <option value="{{ session.id }}">{{ session.nom }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Dropzone -->
+                        <div id="dropzone" class="border-2 border-dashed border-slate-200 rounded-3xl p-12 text-center transition-all cursor-pointer hover:border-emerald-400">
+                            <input type="file" id="file-input" class="hidden" accept=".xlsx, .xls">
+                            <div class="space-y-4">
+                                <div class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-400 text-3xl">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                </div>
+                                <div>
+                                    <p class="text-lg font-semibold text-slate-800">Glissez votre fichier ici</p>
+                                    <p class="text-slate-500 text-sm">ou cliquez pour parcourir vos fichiers</p>
+                                </div>
+                                <div class="pt-4">
+                                    <span class="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-full">Format accepté: Excel (.xlsx)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress / Result -->
+                        <div id="status-container" class="hidden">
+                            <div class="flex items-center space-x-3 p-4 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-100">
+                                <i id="status-icon" class="fas fa-circle-notch fa-spin"></i>
+                                <span id="status-text">Importation en cours...</span>
+                            </div>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <button id="upload-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200 transition-all transform active:scale-95">
+                            LANCER L'IMPORTATION
+                        </button>
+
+                        <!-- Guide -->
+                        <div class="mt-8 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Guide Format Excel</h4>
+                            <ul class="text-xs text-slate-600 space-y-2">
+                                <li class="flex items-center space-x-2">
+                                    <i class="fas fa-check-circle text-emerald-500"></i>
+                                    <span>Colonnes obligatoires : <span class="font-bold">Matricule, Nom, Moyenne, Admis</span></span>
+                                </li>
+                                <li class="flex items-center space-x-2">
+                                    <i class="fas fa-check-circle text-emerald-500"></i>
+                                    <span>Valeurs Admis : <span class="italic">Oui / Non</span></span>
+                                </li>
+                                <li class="flex items-center space-x-2">
+                                    <i class="fas fa-check-circle text-emerald-500"></i>
+                                    <span>Autres colonnes : Considérées comme des détails de notes (ex: Maths, Physique)</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+        const uploadBtn = document.getElementById('upload-btn');
+        const statusContainer = document.getElementById('status-container');
+        const statusText = document.getElementById('status-text');
+        const statusIcon = document.getElementById('status-icon');
+        const sessionSelect = document.getElementById('session-select');
+
+        let selectedFile = null;
+
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('drag-over');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('drag-over');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            dropzone.querySelector('.text-lg').textContent = file.name;
+            dropzone.querySelector('.text-slate-500').textContent = (file.size / 1024).toFixed(2) + ' KB';
+            dropzone.classList.add('border-emerald-300', 'bg-emerald-50');
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            const sessionId = sessionSelect.value;
+            
+            if (!sessionId) {
+                alert('Veuillez sélectionner une session.');
+                return;
+            }
+            if (!selectedFile) {
+                alert('Veuillez choisir un fichier.');
+                return;
+            }
+
+            statusContainer.classList.remove('hidden');
+            statusText.textContent = 'Traitement du fichier Excel...';
+            statusIcon.className = 'fas fa-circle-notch fa-spin';
+            uploadBtn.disabled = true;
+            uploadBtn.classList.add('opacity-50');
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('session_id', sessionId);
+
+            try {
+                const response = await fetch('/api/dashboard/import/', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    statusContainer.classList.remove('bg-emerald-50', 'text-emerald-700');
+                    statusContainer.classList.add('bg-emerald-100', 'text-emerald-800');
+                    statusIcon.className = 'fas fa-check-circle text-emerald-600';
+                    statusText.textContent = result.message;
+                    
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    throw new Error(result.message || 'Erreur inconnue');
+                }
+            } catch (error) {
+                statusContainer.classList.remove('bg-emerald-50', 'text-emerald-700');
+                statusContainer.classList.add('bg-red-50', 'text-red-700', 'border-red-100');
+                statusIcon.className = 'fas fa-exclamation-triangle';
+                statusText.textContent = error.message;
+                uploadBtn.disabled = false;
+                uploadBtn.classList.remove('opacity-50');
+            }
+        });
+    </script>
+</body>
+</html>

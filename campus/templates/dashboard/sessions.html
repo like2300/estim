@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Sessions - ESTIM Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-50 flex min-h-screen">
+    <aside class="w-64 bg-slate-900 text-white flex flex-col">
+        <div class="p-6 border-b border-slate-800"><h1 class="text-xl font-bold">ESTIM <span class="text-emerald-400">ADMIN</span></h1></div>
+        <nav class="flex-1 p-4 space-y-2">
+            <a href="/api/dashboard/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-chart-line"></i><span>Tableau de bord</span>
+            </a>
+            <a href="/api/dashboard/sessions/" class="flex items-center space-x-3 p-3 bg-slate-800 rounded-lg text-emerald-400 font-bold">
+                <i class="fas fa-calendar-alt"></i><span>Sessions</span>
+            </a>
+            <a href="/api/dashboard/results/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-graduation-cap"></i><span>Résultats</span>
+            </a>
+            <a href="/api/dashboard/inscriptions/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-user-plus"></i><span>Inscriptions</span>
+            </a>
+            <a href="/admin/logout/" class="flex items-center space-x-3 p-3 hover:bg-red-900/20 text-red-400 rounded-lg transition mt-8">
+                <i class="fas fa-sign-out-alt"></i><span>Déconnexion</span>
+            </a>
+        </nav>
+    </aside>
+    <main class="flex-1 p-8">
+        <header class="mb-8 flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-slate-800">Sessions d'Examen</h2>
+            <a href="/admin/campus/sessionexamen/add/" class="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition">Nouvelle Session</a>
+        </header>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for session in sessions %}
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-emerald-200 transition-all">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-calendar-check"></i>
+                    </div>
+                    {% if session.is_active %}
+                    <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md text-[10px] font-bold">ACTIVE</span>
+                    {% else %}
+                    <span class="px-2 py-1 bg-slate-100 text-slate-500 rounded-md text-[10px] font-bold">INACTIVE</span>
+                    {% endif %}
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 mb-1">{{ session.nom }}</h3>
+                <p class="text-slate-400 text-xs mb-4">Créée le {{ session.created_at|date:"d/m/Y" }}</p>
+                
+                <div class="flex items-center space-x-2 mb-6">
+                    <div class="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-emerald-500" style="width: {% if session.results_available %}100%{% else %}10%{% endif %}"></div>
+                    </div>
+                    <span class="text-[10px] font-medium text-slate-500">{% if session.results_available %}Publiée{% else %}En attente{% endif %}</span>
+                </div>
+
+                <div class="flex space-x-2">
+                    <a href="/admin/campus/sessionexamen/{{ session.id }}/change/" class="flex-1 text-center py-2 bg-slate-50 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-100 transition">Gérer</a>
+                    <a href="/api/dashboard/?session={{ session.id }}" class="flex-1 text-center py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 transition">Importer</a>
+                </div>
+            </div>
+            {% empty %}
+            <div class="col-span-full py-20 text-center bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400">
+                <i class="fas fa-folder-open text-4xl mb-4"></i>
+                <p>Aucune session d'examen trouvée.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+</body>
+</html>

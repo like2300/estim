@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Annonces - ESTIM Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-50 flex min-h-screen">
+    <aside class="w-64 bg-slate-900 text-white flex flex-col">
+        <div class="p-6 border-b border-slate-800"><h1 class="text-xl font-bold">ESTIM <span class="text-emerald-400">ADMIN</span></h1></div>
+        <nav class="flex-1 p-4 space-y-2">
+            <a href="/api/dashboard/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-chart-line"></i><span>Tableau de bord</span>
+            </a>
+            <a href="/api/dashboard/sessions/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-calendar-alt"></i><span>Sessions</span>
+            </a>
+            <a href="/api/dashboard/results/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-graduation-cap"></i><span>Résultats</span>
+            </a>
+            <a href="/api/dashboard/announcements/" class="flex items-center space-x-3 p-3 bg-slate-800 rounded-lg text-emerald-400 font-bold">
+                <i class="fas fa-bullhorn"></i><span>Annonces</span>
+            </a>
+            <a href="/api/dashboard/inscriptions/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-user-plus"></i><span>Inscriptions</span>
+            </a>
+            <a href="/admin/logout/" class="flex items-center space-x-3 p-3 hover:bg-red-900/20 text-red-400 rounded-lg transition mt-8">
+                <i class="fas fa-sign-out-alt"></i><span>Déconnexion</span>
+            </a>
+        </nav>
+    </aside>
+    <main class="flex-1 p-8">
+        <header class="mb-8 flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-slate-800">Gestion des Annonces</h2>
+            <a href="/admin/campus/annonce/add/" class="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition">Nouvelle Annonce</a>
+        </header>
+        
+        <div class="grid grid-cols-1 gap-6">
+            {% for announcement in announcements %}
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-start space-x-6 hover:shadow-md transition-all">
+                {% if announcement.image %}
+                <img src="{{ announcement.image.url }}" class="w-32 h-32 rounded-xl object-cover border border-slate-100 shadow-sm" alt="Image">
+                {% elif announcement.image_url %}
+                <img src="{{ announcement.image_url }}" class="w-32 h-32 rounded-xl object-cover border border-slate-100 shadow-sm" alt="Image">
+                {% else %}
+                <div class="w-32 h-32 bg-slate-100 rounded-xl flex items-center justify-center text-slate-300 text-3xl">
+                    <i class="fas fa-image"></i>
+                </div>
+                {% endif %}
+                
+                <div class="flex-1">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-[10px] font-bold uppercase tracking-wider mb-2 inline-block">{{ announcement.type }}</span>
+                            <h3 class="text-lg font-bold text-slate-800">{{ announcement.title }}</h3>
+                        </div>
+                        <span class="text-xs text-slate-400 font-medium">{{ announcement.date|date:"d M Y" }}</span>
+                    </div>
+                    <p class="text-slate-500 text-sm mt-2 line-clamp-2">{{ announcement.description }}</p>
+                    <div class="mt-4 flex space-x-3">
+                        <a href="/admin/campus/annonce/{{ announcement.id }}/change/" class="text-xs font-bold text-emerald-600 hover:text-emerald-700">MODIFIER</a>
+                        <a href="#" class="text-xs font-bold text-slate-400 hover:text-slate-600">VOIR SUR L'APP</a>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div class="py-20 text-center bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400">
+                <i class="fas fa-bullhorn text-4xl mb-4"></i>
+                <p>Aucune annonce publiée pour le moment.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+</body>
+</html>

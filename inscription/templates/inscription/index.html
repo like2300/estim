@@ -708,6 +708,25 @@
             background: var(--primary-light);
         }
 
+        .field-input.invalid, .field-select.invalid {
+            border-color: #e74c3c !important;
+            background-color: #fffafa;
+            box-shadow: 0 0 0 4px rgba(231,76,60,0.1) !important;
+        }
+
+        .radio-group.invalid-group {
+            border: 1px solid rgba(231,76,60,0.3);
+            background: #fffafa;
+            border-radius: 12px;
+            animation: shake 0.4s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
         /* === PROFESSION TOGGLE === */
         #professionGroup {
             overflow: hidden;
@@ -720,6 +739,17 @@
             max-height: 100px;
             opacity: 1;
             margin-bottom: 22px;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            border-radius: var(--radius-lg);
         }
 
         /* === RESPONSIVE === */
@@ -756,6 +786,9 @@
         </div>
 
         <div class="form-section" id="form-container">
+            <div id="form-loading" class="loading-overlay">
+                <div class="spinner" style="border-top-color: var(--primary); width: 40px; height: 40px; display: block;"></div>
+            </div>
             <div class="form-header">
                 <h2>Inscription en Ligne</h2>
                 <p>Année Académique {{ config.annee_academique|default:"2025-2026" }} — Formulaire officiel</p>
@@ -1055,12 +1088,36 @@
 
         showTab(currentTab);
 
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchFilieres();
-            fetchEtablissements();
-            fetchNiveaux();
+        document.addEventListener('DOMContentLoaded', async () => {
+            await Promise.all([
+                fetchFilieres(),
+                fetchEtablissements(),
+                fetchNiveaux()
+            ]);
+            document.getElementById('form-loading').style.display = 'none';
             initCamera();
+            setupPhoneFormatting();
         });
+
+        /* ===== PHONE FORMATTING ===== */
+        function setupPhoneFormatting() {
+            const phoneInputs = document.querySelectorAll('input[type="tel"]');
+            phoneInputs.forEach(input => {
+                input.addEventListener('input', (e) => {
+                    let value = e.target.value.replace(/\D/g, '');
+                    if (value.length > 9) value = value.substring(0, 9);
+                    
+                    if (value.length > 2 && value.length <= 5) {
+                        value = value.substring(0, 2) + ' ' + value.substring(2);
+                    } else if (value.length > 5 && value.length <= 7) {
+                        value = value.substring(0, 2) + ' ' + value.substring(2, 5) + ' ' + value.substring(5);
+                    } else if (value.length > 7) {
+                        value = value.substring(0, 2) + ' ' + value.substring(2, 5) + ' ' + value.substring(5, 7) + ' ' + value.substring(7);
+                    }
+                    e.target.value = value;
+                });
+            });
+        }
 
         /* ===== CAMERA LOGIC ===== */
         async function initCamera() {
@@ -1190,7 +1247,6 @@
             return variance / laplacian.length;
         }
 
-        /* ===== API CALLS ===== */
         async function fetchNiveaux() {
             try {
                 const r = await fetch('/api/niveaux/');
@@ -1325,20 +1381,53 @@
             const tabs = document.getElementsByClassName("tab");
             const tab = tabs[currentTab];
             let valid = true;
+            let firstErrorField = null;
 
             // Step 0: Photo validation
             if (currentTab === 0) {
                 const photoInput = document.getElementById('photo-input');
                 if (!photoInput.value) {
-                    showToast("Veuillez prendre une photo avant de continuer.");
+                    showToast("Veuillez prendre une photo avant de continuer.", "error");
                     return false;
                 }
             }
 
             // Required inputs & selects
-            tab.querySelectorAll("input[required].field-input, select[required].field-select").forEach(i => {
-                i.classList.add('touched');
-                if (!i.checkValidity()) valid = false;
+            tab.querySelectorAll("input[required], select[required]").forEach(i => {
+                i.classList.remove('invalid');
+                let isFieldValid = true;
+
+                if (!i.value || i.value.trim() === "") {
+                    isFieldValid = false;
+                } else {
+                    // Pattern validation
+                    if (i.type === 'email' && i.value) {
+                        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                        if (!re.test(i.value)) isFieldValid = false;
+                    }
+                    if (i.type === 'tel') {
+                        // Basique: au moins 9 chiffres
+                        if (i.value.replace(/\D/g, '').length < 9) isFieldValid = false;
+                    }
+                    if (i.id === 'dob' && i.value) {
+                        const birthDate = new Date(i.value);
+                        const today = new Date();
+                        let age = today.getFullYear() - birthDate.getFullYear();
+                        const m = today.getMonth() - birthDate.getMonth();
+                        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+                        
+                        if (age < 15) {
+                            isFieldValid = false;
+                            showToast("Vous devez avoir au moins 15 ans pour vous inscrire.", "error");
+                        }
+                    }
+                }
+
+                if (!isFieldValid) {
+                    valid = false;
+                    i.classList.add('invalid');
+                    if (!firstErrorField) firstErrorField = i;
+                }
             });
 
             // Required radio groups
@@ -1347,28 +1436,63 @@
             radioNames.forEach(name => {
                 if (!tab.querySelector(`input[name="${name}"]:checked`)) {
                     valid = false;
-                    // Highlight the radio group
-                    const firstCard = tab.querySelector(`input[name="${name}"]`);
-                    if (firstCard) {
-                        const card = firstCard.closest('.radio-group');
-                        if (card) {
-                            card.style.animation = 'shake 0.4s ease';
-                            setTimeout(() => card.style.animation = '', 400);
-                        }
+                    const radioGroup = tab.querySelector(`input[name="${name}"]`).closest('.radio-group');
+                    if (radioGroup) {
+                        radioGroup.classList.add('invalid-group');
+                        setTimeout(() => radioGroup.classList.remove('invalid-group'), 2000);
                     }
                 }
             });
 
             if (!valid) {
-                // Inline toast instead of alert
-                showToast("Veuillez remplir tous les champs obligatoires.");
+                showToast("Veuillez remplir correctement tous les champs obligatoires.", "error");
+                if (firstErrorField) firstErrorField.focus();
             }
             return valid;
         }
 
         /* ===== TOAST ===== */
-        function showToast(msg) {
-            // ... (rest of the toast function remains the same)
+        function showToast(msg, type = "info") {
+            // Supprimer l'ancien toast s'il existe
+            const oldToast = document.querySelector('.toast');
+            if (oldToast) oldToast.remove();
+
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: ${type === 'error' ? '#e74c3c' : '#1a6b3c'};
+                color: white;
+                padding: 12px 24px;
+                border-radius: 30px;
+                font-weight: 600;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                z-index: 9999;
+                opacity: 0;
+                transition: opacity 0.3s, bottom 0.3s;
+                font-family: sans-serif;
+                white-space: pre-wrap;
+                max-width: 90%;
+                text-align: center;
+            `;
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+
+            // Animate in
+            setTimeout(() => {
+                toast.style.opacity = '1';
+                toast.style.bottom = '40px';
+            }, 100);
+
+            // Auto-hide
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.bottom = '30px';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
         }
 
         /* ===== SUBMIT ===== */
@@ -1415,7 +1539,20 @@
                     }, 400);
                 } else {
                     const err = await response.json();
-                    showToast("Erreur : " + (err.detail || JSON.stringify(err)));
+                    let errorMsg = "Veuillez corriger les erreurs suivantes :";
+                    
+                    // Si c'est un objet d'erreurs par champ (DRF style)
+                    if (typeof err === 'object' && !err.detail) {
+                        for (const field in err) {
+                            const input = document.getElementsByName(field)[0];
+                            if (input) input.classList.add('invalid');
+                            errorMsg += `\n- ${field}: ${err[field]}`;
+                        }
+                    } else {
+                        errorMsg = err.detail || JSON.stringify(err);
+                    }
+                    
+                    showToast(errorMsg, "error");
                     btn.classList.remove('loading');
                     btn.disabled = false;
                 }

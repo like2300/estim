@@ -6,12 +6,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import (Annonce, Cours, CampusApp, Notification, Etablissement, 
-                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction, Paiement)
+                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction, Paiement, CalendrierAcademique, SiteWeb)
 from .serializers import (AnnonceSerializer, CoursSerializer, CampusAppSerializer,
                                 NotificationSerializer, EtablissementSerializer,
                                 NiveauSerializer, FiliereSerializer, HeroImageSerializer, 
                                 ResultatSerializer, ExamenSerializer, SessionExamenSerializer, 
-                                TransactionSerializer, PaiementSerializer)
+                                TransactionSerializer, PaiementSerializer, CalendrierAcademiqueSerializer, SiteWebSerializer)
 
 def verify_openpay_status(trans):
     """Fonction utilitaire pour vérifier et mettre à jour le statut d'une transaction"""
@@ -146,19 +146,22 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 if inscrit:
                     payer_name = f"{inscrit.first_name} {inscrit.last_name}"
 
-        # Payload selon la documentation OpenPay CG
+        # Payload selon la documentation OpenPay Congo
         payload = {
-            "amount": amount,
+            "amount": int(amount),
+            "currency": "XAF",
             "description": description,
-            "success_url": "https://estim-campus.com/payment-success",
+            "success_url": "https://estim-campus.alwaysdata.net/payment_success",
+            "cancel_url": "https://estim-campus.alwaysdata.net/payment_cancel",
             "customer": {
-                "name": payer_name
+                "name": payer_name,
+                "email": f"{payer_matricule.lower().replace('-', '_')}@estim-campus.cg"
             },
             "metadata": {
                 "transaction_ref": transaction_ref,
                 "payer": payer_matricule,
                 "target": target_matricule,
-                "session": session_id if session else "INSCRIPTION"
+                "session": str(session_id) if session else "INSCRIPTION"
             }
         }
         
@@ -168,13 +171,14 @@ class TransactionViewSet(viewsets.ModelViewSet):
             "Accept": "application/json"
         }
         
-        print(f"DEBUG: Sending to OpenPay: {payload}")
+        print(f"DEBUG: [OpenPay] Request Payload: {payload}")
         
         try:
             response = requests.post(
                 "https://api.openpay-cg.com/v1/payment-link", 
                 json=payload, 
-                headers=headers
+                headers=headers,
+                timeout=15
             )
             
             try:
@@ -182,10 +186,17 @@ class TransactionViewSet(viewsets.ModelViewSet):
             except:
                 data = {"raw_response": response.text}
             
-            print(f"DEBUG: OpenPay response {response.status_code}: {data}")
+            print(f"DEBUG: [OpenPay] Response Status: {response.status_code}")
+            print(f"DEBUG: [OpenPay] Response Data: {data}")
             
             if response.status_code in [200, 201]:
-                res_data = data.get("data", {})
+                # Certains environnements OpenPay renvoient le lien à la racine ou dans 'data'
+                res_data = data.get("data", data) 
+                payment_url = res_data.get("payment_url")
+                
+                if not payment_url:
+                    return Response({"error": "Lien de paiement non trouvé dans la réponse OpenPay"}, status=500)
+
                 # Important: use payment_token or reference if returned
                 openpay_ref = res_data.get("payment_token") or res_data.get("reference") or transaction_ref
                 
@@ -198,14 +209,17 @@ class TransactionViewSet(viewsets.ModelViewSet):
                     status="PENDING"
                 )
                 return Response({
-                    "payment_url": res_data.get("payment_url", ""), 
+                    "payment_url": payment_url, 
                     "transaction_ref": openpay_ref
                 })
             else:
-                return Response({"error": "Erreur lors de la communication avec OpenPay", "details": data}, status=status.HTTP_502_BAD_GATEWAY)
+                error_msg = data.get("message") or data.get("error") or "Erreur inconnue OpenPay"
+                return Response({"error": f"OpenPay: {error_msg}", "details": data}, status=response.status_code)
+        except requests.exceptions.Timeout:
+            return Response({"error": "Délai d'attente dépassé lors de la connexion à OpenPay"}, status=504)
         except Exception as e:
             print(f"CRITICAL ERROR calling OpenPay: {str(e)}")
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": f"Erreur serveur : {str(e)}"}, status=500)
 
     @action(detail=False, methods=['get'], url_path='confirm/(?P<ref>[^/.]+)')
     def confirm_payment(self, request, ref=None):
@@ -366,53 +380,34 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
         anonymous_id = str(request.query_params.get('anonymous_id', '')).strip().upper()
 
         if not matricule or not session_id:
-            return Response({"error": "Matricule et session sont requis"}, status=400)
+            return Response({"error": "Matricule et session sont requis", "available": False}, status=400)
 
         # 1. Vérifier si la session existe
         try:
             session = SessionExamen.objects.get(id=session_id)
         except SessionExamen.DoesNotExist:
-            return Response({"error": "Session non trouvée"}, status=404)
+            return Response({"error": f"La session #{session_id} n'existe pas.", "available": False}, status=200)
 
-        # 2. Vérifier si les résultats existent pour ce matricule dans cette session
-        if not Resultat.objects.filter(matricule=matricule, session=session).exists():
-            return Response({"error": f"Aucun résultat trouvé pour le matricule {matricule} dans cette session"}, status=404)
+        # 2. Vérifier si les résultats existent
+        try:
+            resultat = Resultat.objects.get(matricule=matricule, session=session)
+        except Resultat.DoesNotExist:
+            return Response({
+                "available": False, 
+                "error": f"Aucun résultat trouvé pour le matricule {matricule} dans la session {session.nom}."
+            }, status=200)
 
-        # 3. Vérification si c'est son propre résultat ou si payé
-        # On considère comme payé si:
-        # a) matricule == payer_matricule (consultation propre)
-        # b) Un enregistrement Paiement existe pour (payer_matricule, target_matricule)
-        # c) Un enregistrement Paiement existe pour (anonymous_id, target_matricule)
-        
+        # 3. Vérification du paiement (logique existante simplifiée pour diagnostic)
         is_own_result = (payer_matricule == matricule)
-        
-        # Filtre de base pour le paiement
         payment_query = Q(target_matricule=matricule, session=session)
-        
-        # On construit les conditions de "qui a pu payer"
-        # On inclut toujours le matricule cible au cas où il aurait payé pour lui-même (même si bloqué par l'UI)
         payer_conditions = Q(payer_matricule=matricule) 
         
-        if payer_matricule and payer_matricule != "NONE" and payer_matricule != "NULL":
+        if payer_matricule and payer_matricule not in ["NONE", "NULL", ""]:
             payer_conditions |= Q(payer_matricule=payer_matricule)
-        if anonymous_id and anonymous_id != "NONE" and anonymous_id != "NULL":
+        if anonymous_id and anonymous_id not in ["NONE", "NULL", ""]:
             payer_conditions |= Q(payer_matricule=anonymous_id)
             
         paid = Paiement.objects.filter(payment_query & payer_conditions).exists()
-
-        # Si pas encore marqué comme payé, on vérifie si une transaction PENDING existe et on tente de la confirmer
-        if not is_own_result and not paid:
-            pending_trans = Transaction.objects.filter(
-                target_matricule=matricule,
-                session=session,
-                status="PENDING"
-            ).filter(payer_conditions).first()
-            
-            if pending_trans:
-                print(f"DEBUG: Found PENDING transaction during consultation for {matricule}. Verifying...")
-                if verify_openpay_status(pending_trans):
-                    paid = True
-                    print(f"DEBUG: Proactive verification successful for {matricule}")
 
         if not is_own_result and not paid:
              return Response({
@@ -421,46 +416,12 @@ class ResultatViewSet(viewsets.ReadOnlyModelViewSet):
                 "message": "La consultation du résultat d'un autre étudiant nécessite un paiement de 100 XAF."
             }, status=200)
 
-        # 4. Vérifier si les résultats sont disponibles (ouverts par l'admin)
-        if not session.results_available:
-            return Response({
-                "available": False,
-                "message": "Les résultats ne sont pas encore disponibles. Veuillez contacter le service client ou votre établissement."
-            }, status=200)
-
-        # 5. Renvoyer le résultat
-        try:
-            resultat = Resultat.objects.get(matricule=matricule, session=session)
-            serializer = self.get_serializer(resultat)
-            
-            # Tentative de récupération d'une photo depuis les inscriptions
-            photo_url = None
-            from inscription.models import Inscription
-            nom_res = str(resultat.nom_etudiant).strip().upper()
-            
-            if nom_res and nom_res != "INDISPONIBLE":
-                # On cherche une inscription dont le nom complet (Nom + Prénom) correspond
-                # On utilise __icontains pour plus de souplesse
-                insc = Inscription.objects.filter(photo__isnull=False).filter(
-                    Q(last_name__icontains=nom_res) | 
-                    Q(first_name__icontains=nom_res) |
-                    Q(last_name__in=nom_res.split()) |
-                    Q(first_name__in=nom_res.split())
-                ).first()
-                
-                if insc and insc.photo:
-                    photo_url = request.build_absolute_uri(insc.photo.url)
-                    # S'assurer que l'URL utilise HTTPS si le serveur est derrière un proxy SSL
-                    if not settings.DEBUG and photo_url.startswith('http://'):
-                        photo_url = photo_url.replace('http://', 'https://')
-
-            return Response({
-                "available": True,
-                "data": serializer.data,
-                "photo_url": photo_url
-            })
-        except Resultat.DoesNotExist:
-            return Response({"error": "Résultat non trouvé"}, status=404)
+        # 4. Renvoyer le résultat
+        serializer = self.get_serializer(resultat)
+        return Response({
+            "available": True,
+            "data": serializer.data
+        })
 
 class HeroImageViewSet(viewsets.ModelViewSet):
     queryset = HeroImage.objects.filter(is_active=True).order_by('-created_at')
@@ -514,3 +475,13 @@ class ExamenViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(filiere__nom=filiere)
             
         return queryset.order_by('date', 'heure')
+
+
+class CalendrierAcademiqueViewSet(viewsets.ModelViewSet):
+    queryset = CalendrierAcademique.objects.all().order_by('date_debut')
+    serializer_class = CalendrierAcademiqueSerializer
+
+
+class SiteWebViewSet(viewsets.ModelViewSet):
+    queryset = SiteWeb.objects.all().order_by('title')
+    serializer_class = SiteWebSerializer

@@ -1,7 +1,8 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from .models import (Annonce, Cours, CampusApp, Notification, Etablissement, 
-                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction, Paiement)
+                     Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, Transaction, Paiement,
+                     CalendrierAcademique, SiteWeb)
 
 @admin.register(Transaction)
 class TransactionAdmin(ModelAdmin):
@@ -79,3 +80,14 @@ class NotificationAdmin(ModelAdmin):
     list_display = ('title', 'is_read', 'created_at')
     list_filter = ('is_read',)
     readonly_fields = ('created_at',)
+
+@admin.register(CalendrierAcademique)
+class CalendrierAcademiqueAdmin(ModelAdmin):
+    list_display = ('title', 'date_debut', 'date_fin', 'is_important')
+    list_filter = ('is_important', 'date_debut')
+    search_fields = ('title', 'description')
+
+@admin.register(SiteWeb)
+class SiteWebAdmin(ModelAdmin):
+    list_display = ('title', 'url', 'icon_name')
+    search_fields = ('title', 'url')

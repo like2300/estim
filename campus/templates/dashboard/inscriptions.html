@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Inscriptions - ESTIM Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-50 flex min-h-screen">
+    <aside class="w-64 bg-slate-900 text-white flex flex-col">
+        <div class="p-6 border-b border-slate-800"><h1 class="text-xl font-bold">ESTIM <span class="text-emerald-400">ADMIN</span></h1></div>
+        <nav class="flex-1 p-4 space-y-2">
+            <a href="/api/dashboard/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-chart-line"></i><span>Tableau de bord</span>
+            </a>
+            <a href="/api/dashboard/results/" class="flex items-center space-x-3 p-3 hover:bg-slate-800 rounded-lg transition">
+                <i class="fas fa-graduation-cap"></i><span>Résultats</span>
+            </a>
+            <a href="/api/dashboard/inscriptions/" class="flex items-center space-x-3 p-3 bg-slate-800 rounded-lg text-emerald-400 font-bold">
+                <i class="fas fa-user-plus"></i><span>Inscriptions</span>
+            </a>
+            <a href="/admin/logout/" class="flex items-center space-x-3 p-3 hover:bg-red-900/20 text-red-400 rounded-lg transition mt-8">
+                <i class="fas fa-sign-out-alt"></i><span>Déconnexion</span>
+            </a>
+        </nav>
+    </aside>
+    <main class="flex-1 p-8 overflow-y-auto">
+        <header class="mb-8 flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-slate-800">Dossiers d'Inscription</h2>
+            <span class="text-slate-500 text-sm">{{ inscriptions|length }} dossiers enregistrés</span>
+        </header>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <table class="w-full text-left border-collapse">
+                <thead class="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">ID</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Étudiant</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Filière</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Téléphone</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Date</th>
+                        <th class="p-4 text-xs font-bold text-slate-400 uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-50">
+                    {% for ins in inscriptions %}
+                    <tr class="hover:bg-slate-50/50 transition">
+                        <td class="p-4 font-mono text-xs text-slate-400">#{{ ins.id }}</td>
+                        <td class="p-4">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 text-xs font-bold">
+                                    {{ ins.last_name|slice:":1" }}{{ ins.first_name|slice:":1" }}
+                                </div>
+                                <span class="font-medium text-slate-700">{{ ins.last_name }} {{ ins.first_name }}</span>
+                            </div>
+                        </td>
+                        <td class="p-4 text-sm text-slate-500">{{ ins.choix_filiere }}</td>
+                        <td class="p-4 text-sm font-mono">{{ ins.phone }}</td>
+                        <td class="p-4 text-xs text-slate-400">{{ ins.created_at|date:"d/m/Y H:i" }}</td>
+                        <td class="p-4">
+                            <a href="/admin/inscription/inscription/{{ ins.id }}/change/" class="text-emerald-600 hover:text-emerald-700 text-sm font-bold">Détails</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </main>
+</body>
+</html>

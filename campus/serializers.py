@@ -2,7 +2,7 @@ from django.conf import settings
 from rest_framework import serializers
 from .models import (Annonce, Cours, CampusApp, Notification, Etablissement, 
                      Niveau, Filiere, HeroImage, Resultat, Examen, SessionExamen, 
-                     Transaction, Paiement)
+                     Transaction, Paiement, CalendrierAcademique, SiteWeb)
 
 class EtablissementSerializer(serializers.ModelSerializer):
     class Meta:
@@ -118,4 +118,16 @@ class ExamenSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Examen
+        fields = '__all__'
+
+
+class CalendrierAcademiqueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CalendrierAcademique
+        fields = '__all__'
+
+
+class SiteWebSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SiteWeb
         fields = '__all__'

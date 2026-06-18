@@ -1,6 +1,11 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Inscription
+from .models import Inscription, FormConfig
+
+class FormConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FormConfig
+        fields = '__all__'
 
 class InscriptionSerializer(serializers.ModelSerializer):
     class Meta:
