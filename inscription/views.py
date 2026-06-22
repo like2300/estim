@@ -176,11 +176,40 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         if inscription.photo:
             try:
                 from io import BytesIO
-                inscription.photo.open('rb'); img_data = BytesIO(inscription.photo.read()); p_img = RLImage(img_data, width=78, height=102); p_img.hAlign = "CENTER"; photo_cell = p_img; has_photo = True; inscription.photo.close()
-            except: pass
+                from reportlab.lib.utils import ImageReader
+                inscription.photo.open('rb')
+                img_data = BytesIO(inscription.photo.read())
+                
+                # Lire l'image pour obtenir ses dimensions réelles et préserver le ratio d'aspect
+                img_reader = ImageReader(img_data)
+                orig_w, orig_h = img_reader.getSize()
+                
+                # Fixer une largeur maximale de 78 et calculer la hauteur proportionnelle
+                max_w = 78
+                max_h = 102
+                aspect = orig_h / orig_w
+                
+                new_w = max_w
+                new_h = max_w * aspect
+                
+                # Ajuster si la hauteur dépasse max_h
+                if new_h > max_h:
+                    new_h = max_h
+                    new_w = max_h / aspect
+                
+                p_img = RLImage(img_data, width=new_w, height=new_h)
+                p_img.hAlign = "CENTER"
+                photo_cell = p_img
+                has_photo = True
+                inscription.photo.close()
+            except Exception as e:
+                print(f"Error processing image proportions: {e}")
+                pass
         if not has_photo:
             ph_txt = Paragraph("PHOTO", ParagraphStyle("phP", fontSize=6, fontName="Helvetica-Bold", textColor=C_GRAY_LIGHT, alignment=TA_CENTER))
             photo_cell = Table([[ph_txt]], colWidths=[78], rowHeights=[102], style=TableStyle([("BOX", (0, 0), (-1, -1), 0.4, C_GRAY_PALE), ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+        
+        # Le conteneur s'adapte à l'image sans déformer
         photo_frame = Table([[photo_cell]], colWidths=[86], rowHeights=[110], style=TableStyle([("BOX", (0, 0), (-1, -1), 1, C_GREEN), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
         elements.append(Table([[etab_para, photo_frame]], colWidths=[usable_w - 94, 86], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (1, 0), (1, 0), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 0)])))
         elements.append(Spacer(1, 8))

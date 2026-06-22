@@ -430,6 +430,20 @@ class HeroImageViewSet(viewsets.ModelViewSet):
 class NotificationViewSet(viewsets.ModelViewSet):
     queryset = Notification.objects.all().order_by('-created_at')
     serializer_class = NotificationSerializer
+    
+    def get_queryset(self):
+        queryset = Notification.objects.all().order_by('-created_at')
+        matricule = self.request.query_params.get('matricule')
+        
+        if matricule:
+            # Filtrer : soit les notifications sans cible (générales), soit celles pour ce matricule
+            queryset = queryset.filter(
+                Q(target_matricule__isnull=True) | 
+                Q(target_matricule='') | 
+                Q(target_matricule=str(matricule).strip().upper())
+            )
+        
+        return queryset
 
 class CoursViewSet(viewsets.ModelViewSet):
     queryset = Cours.objects.all()

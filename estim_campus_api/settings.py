@@ -8,15 +8,21 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-CSRF_TRUSTED_ORIGINS = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+# Configuration CSRF pour la production
+CSRF_TRUSTED_ORIGINS = [
+    "https://estim-campus.alwaysdata.net",
+]
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-default-key-change-me")
 
 OPENPAY_API_KEY = os.getenv("OPENPAY_API_KEY", "")
 
-DEBUG = os.getenv("DJANGO_DEBUG", "True") == "True"
+# DEBUG est géré par .env (False en production, True en dev)
+DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
+# Hôtes autorisés - Production uniquement
+allowed_hosts_env = os.getenv("DJANGO_ALLOWED_HOSTS", "")
+ALLOWED_HOSTS = allowed_hosts_env.split(",") if allowed_hosts_env else ['estim-campus.alwaysdata.net']
 
 # Sécurité HTTPS en production
 if not DEBUG:
@@ -26,6 +32,9 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = os.getenv("DJANGO_CSRF_COOKIE_SECURE", "True") == "True"
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 an
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 INSTALLED_APPS = [
     "unfold",
@@ -53,7 +62,12 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True  # Autorise l'accès depuis l'application mobile et le web
+CORS_ALLOW_ALL_ORIGINS = False  # Désactivé pour la sécurité, utilise CORS_ALLOWED_ORIGINS
+
+# CORS allowed origins from .env
+cors_origins = os.getenv("CSRF_TRUSTED_ORIGINS", "")
+if cors_origins:
+    CORS_ALLOWED_ORIGINS = cors_origins.split(",")
 
 ROOT_URLCONF = "estim_campus_api.urls"
 
