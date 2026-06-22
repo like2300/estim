@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='formconfig',
             name='school_phone',
-            field=models.CharField(default='06 966 48 98', max_length=100, verbose_name='Téléphone'),
+            field=models.CharField(default='+242 061167676', max_length=100, verbose_name='Téléphone'),
         ),
         migrations.AddField(
             model_name='formconfig',

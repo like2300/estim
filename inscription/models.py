@@ -7,7 +7,7 @@ class FormConfig(models.Model):
     school_name = models.CharField(max_length=255, default="ÉCOLE SUPÉRIEURE DE TECHNOLOGIE, D'INGÉNIERIE ET DE MANAGEMENT", verbose_name="Nom de l'école")
     school_agreement = models.CharField(max_length=255, default="Agrément N° 0238 /MES-CAB-DGESUP", verbose_name="Agrément")
     school_address = models.TextField(default="91 rue Moulla, croisement av. de la Tsiemé — face Poste Réf / Rond-Point Koulounda — Brazzaville", verbose_name="Adresse")
-    school_phone = models.CharField(max_length=100, default="06 966 48 98", verbose_name="Téléphone")
+    school_phone = models.CharField(max_length=100, default="+242 061167676", verbose_name="Téléphone")
     school_whatsapp = models.CharField(max_length=100, default="+242 05 559 87 27", verbose_name="WhatsApp")
     school_website = models.URLField(default="http://www.estim-ecole.com", verbose_name="Site Web")
     logo = models.ImageField(upload_to="form_assets/", null=True, blank=True, verbose_name="Logo")

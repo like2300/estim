@@ -159,7 +159,7 @@ class InscriptionViewSet(viewsets.ModelViewSet):
         school_name = config.school_name if config else "ÉCOLE SUPÉRIEURE DE TECHNOLOGIE, D'INGÉNIERIE ET DE<br/>MANAGEMENT"
         school_agreement = etab_obj.agrement if etab_obj and etab_obj.agrement else (config.school_agreement if config else "Agrément N° 0238 /MES-CAB-DGESUP")
         school_address = etab_obj.adresse if etab_obj and etab_obj.adresse else (config.school_address if config else "91 rue Moulla, croisement av. de la Tsiemé — face Poste Réf / Rond-Point Koulounda — Brazzaville")
-        school_contacts = f"Tél : {config.school_phone}  ·  WhatsApp : {config.school_whatsapp}  ·  {config.school_website}" if config else "Tél : 06 966 48 98  ·  WhatsApp : +242 05 559 87 27  ·  www.estim-ecole.com"
+        school_contacts = f"Tél : {config.school_phone}  ·  WhatsApp : {config.school_whatsapp}  ·  {config.school_website}" if config else "Tél : +242 061167676  ·  WhatsApp : +242 05 559 87 27  ·  www.estim-ecole.com"
 
         header_texts = [Paragraph(school_name, s_title_header), Spacer(1, 1), Paragraph(school_agreement, s_agrement), Spacer(1, 2), Paragraph(school_address, s_address_header), Paragraph(school_contacts, s_address_header)]
         if is_admin:

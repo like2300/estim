@@ -436,12 +436,15 @@ class NotificationViewSet(viewsets.ModelViewSet):
         matricule = self.request.query_params.get('matricule')
         
         if matricule:
-            # Filtrer : soit les notifications sans cible (générales), soit celles pour ce matricule
+            # BLOQUER les notifications sans target_matricule
+            # Ne retourner QUE les notifications avec target_matricule correspondant
             queryset = queryset.filter(
-                Q(target_matricule__isnull=True) | 
-                Q(target_matricule='') | 
-                Q(target_matricule=str(matricule).strip().upper())
+                target_matricule=str(matricule).strip().upper()
             )
+        else:
+            # Si aucun matricule n'est fourni, ne retourner AUCUNE notification
+            # (bloquer l'accès aux notifications sans filtre de matricule)
+            queryset = queryset.none()
         
         return queryset
 

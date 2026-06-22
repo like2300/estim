@@ -254,55 +254,48 @@ class SiteWeb(models.Model):
 @receiver(post_save, sender=Annonce)
 def create_notification_on_annonce(sender, instance, created, **kwargs):
     if created:
-        Notification.objects.create(
-            title=f"📢 Nouvelle annonce : {instance.title}",
-            message=instance.description[:100] + "...",
-            annonce=instance,
-            notification_type="annonce",
-            related_id=instance.id,
-        )
+        # Ne pas créer de notification sans target_matricule
+        # Pour les annonces, on ne peut pas déterminer un matricule unique
+        # donc on ne crée pas de notification générale
+        pass
 
 
 @receiver(post_save, sender=Cours)
 def create_notification_on_cours(sender, instance, created, **kwargs):
     if created:
-        Notification.objects.create(
-            title=f"📅 Nouveau cours : {instance.matiere}",
-            message=f"Le cours de {instance.matiere} ({instance.niveau}) a été ajouté à l'emploi du temps.",
-            notification_type="cours",
-            related_id=instance.id,
-        )
+        # Ne pas créer de notification sans target_matricule
+        # Pour les cours, on ne peut pas déterminer un matricule unique
+        # donc on ne crée pas de notification générale
+        pass
 
 
 @receiver(post_save, sender=Examen)
 def create_notification_on_examen(sender, instance, created, **kwargs):
     if created:
-        Notification.objects.create(
-            title=f"📝 Nouvel examen : {instance.matiere}",
-            message=f"Un(e) {instance.type} de {instance.matiere} est prévu le {instance.date} à {instance.heure}.",
-            notification_type="examen",
-            related_id=instance.id,
-        )
+        # Ne pas créer de notification sans target_matricule
+        # Pour les examens, on ne peut pas déterminer un matricule unique
+        # donc on ne crée pas de notification générale
+        pass
 
 
 @receiver(post_save, sender=Resultat)
 def create_notification_on_resultat(sender, instance, created, **kwargs):
     if created:
-        Notification.objects.create(
-            title=f"🎓 Nouveau résultat disponible",
-            message=f"Félicitations {instance.nom_etudiant}, votre résultat pour la session {instance.session.nom} est disponible !",
-            notification_type="resultat",
-            related_id=instance.id,
-            target_matricule=instance.matricule,
-        )
+        # Créer notification UNIQUEMENT si matricule est présent
+        if instance.matricule:
+            Notification.objects.create(
+                title=f"🎓 Nouveau résultat disponible",
+                message=f"Félicitations {instance.nom_etudiant}, votre résultat pour la session {instance.session.nom} est disponible !",
+                notification_type="resultat",
+                related_id=instance.id,
+                target_matricule=instance.matricule,
+            )
 
 
 @receiver(post_save, sender=CalendrierAcademique)
 def create_notification_on_calendrier(sender, instance, created, **kwargs):
     if created:
-        Notification.objects.create(
-            title=f"📅 Calendrier : {instance.title}",
-            message=f"Un nouvel événement a été ajouté : {instance.title} le {instance.date_debut}.",
-            notification_type="calendrier",
-            related_id=instance.id,
-        )
+        # Ne pas créer de notification sans target_matricule
+        # Pour le calendrier, on ne peut pas déterminer un matricule unique
+        # donc on ne crée pas de notification générale
+        pass
